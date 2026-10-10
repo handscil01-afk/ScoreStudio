@@ -22,7 +22,5 @@
     <ProjectReference Include="..\ScoreStudio\ScoreStudio.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Include="..\samples\*.scoreproj" Link="samples\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
+  <!-- samples/*.scoreproj and Fonts/ come from the ScoreStudio project's content files. -->
 </Project>
