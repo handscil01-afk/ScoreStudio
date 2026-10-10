@@ -150,15 +150,24 @@ public static class MusicXmlImporter
             .Where(p => (string?)p.Attribute("id") is not null)
             .ToDictionary(p => (string)p.Attribute("id")!, p => p) ?? new Dictionary<string, XElement>();
 
+        var parts = new List<(XElement Part, string Name, string Instrument)>();
         foreach (var partElement in root.Elements("part"))
         {
             var id = (string?)partElement.Attribute("id") ?? "";
             if (!partList.Remove(id, out var scorePart))
                 throw new ProjectFileException($"파트 목록(part-list)에 없는 파트('{id}')가 있습니다. MusicXML 파일이 손상되었을 수 있습니다.");
 
-            var name = FirstText(scorePart.Element("part-name")) ?? $"파트 {project.Parts.Count + 1}";
+            var name = PartName(scorePart) ?? $"파트 {parts.Count + 1}";
             var instrument = FirstText(scorePart.Element("score-instrument")?.Element("instrument-name")) ?? name;
-            project.Parts.Add(new PartReader(name, instrument, warnings).Read(partElement));
+            parts.Add((partElement, name, instrument));
+        }
+
+        for (var i = 0; i < parts.Count; i++)
+        {
+            // Warning locations must say which part they mean, even when several parts share a name.
+            var (partElement, name, instrument) = parts[i];
+            var label = parts.Count(p => p.Name == name) > 1 ? $"{i + 1}번째 파트({name})" : name;
+            project.Parts.Add(new PartReader(name, label, instrument, warnings).Read(partElement));
         }
 
         foreach (var orphan in partList.Values)
@@ -181,6 +190,30 @@ public static class MusicXmlImporter
                 Lyrics = events.Count(e => !string.IsNullOrEmpty(e.Lyric)),
             },
         };
+    }
+
+    /// <summary>Finale names unnamed staves "MusicXML Part"; that is a placeholder, not a name.</summary>
+    private const string FinalePlaceholderName = "MusicXML Part";
+
+    /// <summary>
+    /// The printed part name: part-name-display if present (it is what the score shows), otherwise part-name.
+    /// Returns null for missing or placeholder names.
+    /// </summary>
+    private static string? PartName(XElement scorePart)
+    {
+        if (scorePart.Element("part-name-display") is { } display)
+        {
+            var text = string.Concat(display.Elements().Select(e => e.Name.LocalName switch
+            {
+                "display-text" => e.Value,
+                "accidental-text" => e.Value.Trim() switch { "flat" => "♭", "sharp" => "♯", "natural" => "♮", _ => "" },
+                _ => "",
+            })).Trim();
+            if (text.Length > 0) return text;
+        }
+
+        var name = FirstText(scorePart.Element("part-name"));
+        return name is null || string.Equals(name, FinalePlaceholderName, StringComparison.OrdinalIgnoreCase) ? null : name;
     }
 
     private static string? FirstText(params XElement?[] elements) =>
@@ -216,11 +249,15 @@ public static class MusicXmlImporter
             ["rehearsal"] = "리허설 마크",
             ["segno"] = "세뇨·코다",
             ["coda"] = "세뇨·코다",
+            ["dashes"] = "점선 지시(cresc. - - - 등)",
+            ["bracket"] = "괄호선 지시",
+            ["other-direction"] = "기타 지시 기호",
         };
 
         private static readonly HashSet<string> IgnoredMeasureChildren = new() { "print", "sound", "listening", "bookmark", "link", "grouping" };
 
         private readonly string _name;
+        private readonly string _label;
         private readonly string _instrument;
         private readonly ImportWarningCollector _warnings;
         private readonly Dictionary<int, ClefType> _clefs = new();
@@ -233,9 +270,10 @@ public static class MusicXmlImporter
         private bool _firstMeasureDone;
         private string _location = "";
 
-        public PartReader(string name, string instrument, ImportWarningCollector warnings)
+        public PartReader(string name, string label, string instrument, ImportWarningCollector warnings)
         {
             _name = name;
+            _label = label;
             _instrument = instrument;
             _warnings = warnings;
         }
@@ -264,7 +302,7 @@ public static class MusicXmlImporter
             var numberText = (string?)element.Attribute("number");
             var isNumeric = int.TryParse(numberText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed);
             var number = isNumeric ? parsed : index + 1;
-            _location = $"{_name} {numberText ?? number.ToString(CultureInfo.InvariantCulture)}마디";
+            _location = $"{_label} {numberText ?? number.ToString(CultureInfo.InvariantCulture)}마디";
             if (!isNumeric)
                 Warn("숫자가 아닌 마디 번호는 순서 번호로 바꿈");
 

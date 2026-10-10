@@ -174,6 +174,38 @@ public sealed class MusicXmlImporterTests : IDisposable
         Assert.Equal("피아노 연습곡", MusicXmlImporter.ImportFile(path).Project.Title);
     }
 
+    [Fact]
+    public void FinalePlaceholderPartNames_AreNumbered_AndDisplayNamesWin()
+    {
+        // Finale exports unnamed staves as "MusicXML Part"; part-name-display holds the printed name.
+        const string xml = """
+            <score-partwise>
+              <part-list>
+                <score-part id="P1"><part-name print-object="no">MusicXML Part</part-name></score-part>
+                <score-part id="P2"><part-name print-object="no">MusicXML Part</part-name></score-part>
+                <score-part id="P3"><part-name>Clarinet in Bb</part-name>
+                  <part-name-display><display-text>Clarinet in B</display-text><accidental-text>flat</accidental-text></part-name-display></score-part>
+                <score-part id="P4"><part-name>Voice</part-name></score-part>
+                <score-part id="P5"><part-name>Voice</part-name></score-part>
+              </part-list>
+              <part id="P1"><measure number="1"><harmony/></measure></part>
+              <part id="P2"><measure number="1"/></part>
+              <part id="P3"><measure number="1"/></part>
+              <part id="P4"><measure number="1"/></part>
+              <part id="P5"><measure number="1"><harmony/></measure></part>
+            </score-partwise>
+            """;
+
+        var result = MusicXmlImporter.ImportXml(xml, "finale");
+
+        Assert.Equal(new[] { "파트 1", "파트 2", "Clarinet in B♭", "Voice", "Voice" }, result.Project.Parts.Select(p => p.Name));
+        var chordWarning = Assert.Single(result.Warnings);
+        Assert.Equal((2, "파트 1 1마디"), (chordWarning.Count, chordWarning.FirstLocation));
+
+        var duplicates = MusicXmlImporter.ImportXml(xml.Replace("<measure number=\"1\"><harmony/></measure></part>\n  <part id=\"P2\">", "<measure number=\"1\"/></part>\n  <part id=\"P2\">"), "finale");
+        Assert.Contains(duplicates.Warnings, w => w.FirstLocation == "5번째 파트(Voice) 1마디");
+    }
+
     public static TheoryData<string, string> InvalidSources => new()
     {
         { "", "비어 있습니다" },

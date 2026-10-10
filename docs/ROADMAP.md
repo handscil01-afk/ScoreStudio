@@ -23,9 +23,9 @@
 설계와 수용 기준: `docs/SPRINT3_MUSICXML.md`
 - [x] 가져오기 라이브러리 선택 및 라이선스 검토 (외부 라이브러리 없이 System.Xml로 직접 구현)
 - [x] 파트/마디/음표/리듬/가사 매핑 (자동 테스트, 샘플 3개)
-- [ ] 변환 경고 표시 (경고 수집은 자동 테스트로 확인, 결과 창은 Windows PC에서 확인 필요)
+- [x] 변환 경고 표시 (자동 테스트, 사용자가 Windows PC에서 결과 창 확인)
 - [x] 가져오기 후 저장/재열기 테스트
-- [ ] 다른 프로그램(Finale, MuseScore 등)에서 내보낸 실제 MusicXML 파일로 확인
+- [x] 다른 프로그램(Finale)에서 내보낸 실제 MusicXML 파일로 확인 (결과: `docs/SPRINT3_MUSICXML.md`)
 
 ## Sprint 4 — 채보
 - [ ] 음표/쉼표 길이 선택
