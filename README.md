@@ -40,7 +40,11 @@ dotnet run --project ScoreStudio
 Windows가 아닌 환경에서는 WPF 앱을 빌드할 수 없다. 이때는 `dotnet test ScoreStudio.Core.Tests`로 저장/열기 테스트만 실행한다.
 
 ### 빌드된 앱 내려받기
-GitHub 저장소의 Actions 탭 → 최근 "Windows build" 실행 → Artifacts의 `ScoreStudio-win-x64`를 내려받아 압축을 풀고 `ScoreStudio.exe`를 실행한다. 이 파일을 실행하려면 PC에 [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)이 설치되어 있어야 한다.
+`main`에 push할 때마다 CI가 "latest" 릴리스의 zip 파일을 새로 올린다. GitHub에 로그인한 브라우저에서 아래 주소를 열면 바로 내려받을 수 있다.
+
+https://github.com/handscil01-afk/ScoreStudio/releases/download/latest/ScoreStudio-win-x64.zip
+
+압축을 풀고 `ScoreStudio.exe`를 실행한다. 이 파일을 실행하려면 PC에 [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)이 설치되어 있어야 한다.
 
 ## 첫 개발 목표
 1. 앱이 실행되고 기본 작업 화면이 표시되는지 확인

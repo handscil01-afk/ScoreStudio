@@ -5,9 +5,16 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Only one run at a time may replace the "latest" release.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write
     env:
       DOTNET_NOLOGO: true
       DOTNET_CLI_TELEMETRY_OPTOUT: true
@@ -35,3 +42,18 @@ jobs:
           name: ScoreStudio-win-x64
           path: publish/
           if-no-files-found: error
+
+      # A release asset has a fixed download link, which is easier to use than an Actions artifact.
+      - name: Update "latest" release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd publish && 7z a -tzip ../ScoreStudio-win-x64.zip . > /dev/null)
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest ScoreStudio-win-x64.zip \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "최신 개발 빌드 (${GITHUB_SHA::7})" \
+            --notes "main 브랜치의 최신 자동 빌드입니다. 아직 개발 중인 버전이며, MusicXML·MUSX 가져오기, 음표 편집, PDF 출력은 구현되지 않았습니다. 실행하려면 .NET 8 Desktop Runtime이 필요합니다."
