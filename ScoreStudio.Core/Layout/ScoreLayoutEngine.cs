@@ -136,8 +136,14 @@ public static class ScoreLayoutEngine
 
         if (hasComposer)
         {
+            // Composer fields from MusicXML often hold several lines (e.g. lyricist, composer, arranger).
+            var lines = project.Composer.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
             y += hasTitle ? 6 : ComposerSize;
-            page.Items.Add(new TextItem(project.Composer.Trim(), page.Width - options.Margin, y, ComposerSize, TextAnchor.End));
+            for (var i = 0; i < lines.Count; i++)
+            {
+                if (i > 0) y += ComposerSize * 1.4;
+                page.Items.Add(new TextItem(lines[i], page.Width - options.Margin, y, ComposerSize, TextAnchor.End));
+            }
         }
 
         return hasTitle || hasComposer ? y + 12 : y;

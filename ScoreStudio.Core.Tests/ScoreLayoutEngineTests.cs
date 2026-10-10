@@ -158,6 +158,20 @@ public sealed class ScoreLayoutEngineTests
     }
 
     [Fact]
+    public void MultiLineComposer_GetsOneTextItemPerLine_AboveTheFirstSystem()
+    {
+        var project = WithMeasures(4, new[] { ClefType.Treble });
+        project.Composer = "정윤용 작사 작곡\r\n김예림 조옮김\n\n편곡 홍길동";
+
+        var page = ScoreLayoutEngine.Layout(project).Pages.Single();
+        var lines = page.Items.OfType<TextItem>().Where(t => t.Anchor == TextAnchor.End && t.Size == 3.5).ToList();
+
+        Assert.Equal(new[] { "정윤용 작사 작곡", "김예림 조옮김", "편곡 홍길동" }, lines.Select(t => t.Text));
+        Assert.True(lines.Zip(lines.Skip(1)).All(pair => pair.Second.Y > pair.First.Y + 3.5), "lines must not overlap");
+        Assert.True(page.Systems[0].Top - 2 * 1.75 > lines[^1].Y, "the last line must stay above the first system's measure numbers and clefs");
+    }
+
+    [Fact]
     public void NewProject_ShowsOneSystemWithFourMeasures()
     {
         var system = ScoreLayoutEngine.Layout(ScoreProject.CreateNew()).Pages.Single().Systems.Single();
