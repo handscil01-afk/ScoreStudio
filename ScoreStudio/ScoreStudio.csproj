@@ -17,4 +17,9 @@
     <Content Include="Fonts\Bravura.otf" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Fonts\Bravura-OFL.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!-- Ship the sample projects so a downloaded build can be checked right away. -->
+  <ItemGroup>
+    <Content Include="..\samples\*.scoreproj" Link="samples\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
