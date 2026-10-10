@@ -259,36 +259,38 @@ public sealed class MusicXmlImporterTests : IDisposable
         Assert.Equal("끝나지 않은 볼타(1·2번 괄호)는 마지막 마디까지로 맞춤", Assert.Single(result.Warnings).Message);
     }
 
+    /// <summary>Five parts in Finale's style; <paramref name="chordsInPart1"/> decides whether part 1 has a chord symbol.</summary>
+    private static string FinaleStyleParts(bool chordsInPart1) => $"""
+        <score-partwise>
+          <part-list>
+            <score-part id="P1"><part-name print-object="no">MusicXML Part</part-name></score-part>
+            <score-part id="P2"><part-name print-object="no">MusicXML Part</part-name></score-part>
+            <score-part id="P3"><part-name>Clarinet in Bb</part-name>
+              <part-name-display><display-text>Clarinet in B</display-text><accidental-text>flat</accidental-text></part-name-display></score-part>
+            <score-part id="P4"><part-name>Voice</part-name></score-part>
+            <score-part id="P5"><part-name>Voice</part-name></score-part>
+          </part-list>
+          <part id="P1"><measure number="1">{(chordsInPart1 ? "<harmony/>" : "")}</measure></part>
+          <part id="P2"><measure number="1"/></part>
+          <part id="P3"><measure number="1"/></part>
+          <part id="P4"><measure number="1"/></part>
+          <part id="P5"><measure number="1"><harmony/></measure></part>
+        </score-partwise>
+        """;
+
     [Fact]
     public void FinalePlaceholderPartNames_AreNumbered_AndDisplayNamesWin()
     {
         // Finale exports unnamed staves as "MusicXML Part"; part-name-display holds the printed name.
-        const string xml = """
-            <score-partwise>
-              <part-list>
-                <score-part id="P1"><part-name print-object="no">MusicXML Part</part-name></score-part>
-                <score-part id="P2"><part-name print-object="no">MusicXML Part</part-name></score-part>
-                <score-part id="P3"><part-name>Clarinet in Bb</part-name>
-                  <part-name-display><display-text>Clarinet in B</display-text><accidental-text>flat</accidental-text></part-name-display></score-part>
-                <score-part id="P4"><part-name>Voice</part-name></score-part>
-                <score-part id="P5"><part-name>Voice</part-name></score-part>
-              </part-list>
-              <part id="P1"><measure number="1"><harmony/></measure></part>
-              <part id="P2"><measure number="1"/></part>
-              <part id="P3"><measure number="1"/></part>
-              <part id="P4"><measure number="1"/></part>
-              <part id="P5"><measure number="1"><harmony/></measure></part>
-            </score-partwise>
-            """;
-
-        var result = MusicXmlImporter.ImportXml(xml, "finale");
+        var result = MusicXmlImporter.ImportXml(FinaleStyleParts(chordsInPart1: true), "finale");
 
         Assert.Equal(new[] { "파트 1", "파트 2", "Clarinet in B♭", "Voice", "Voice" }, result.Project.Parts.Select(p => p.Name));
         var chordWarning = Assert.Single(result.Warnings);
         Assert.Equal((2, "파트 1 1마디"), (chordWarning.Count, chordWarning.FirstLocation));
 
-        var duplicates = MusicXmlImporter.ImportXml(xml.Replace("<measure number=\"1\"><harmony/></measure></part>\n  <part id=\"P2\">", "<measure number=\"1\"/></part>\n  <part id=\"P2\">"), "finale");
-        Assert.Contains(duplicates.Warnings, w => w.FirstLocation == "5번째 파트(Voice) 1마디");
+        // When names repeat, the location also says which part it is.
+        var duplicates = MusicXmlImporter.ImportXml(FinaleStyleParts(chordsInPart1: false), "finale");
+        Assert.Equal("5번째 파트(Voice) 1마디", Assert.Single(duplicates.Warnings).FirstLocation);
     }
 
     public static TheoryData<string, string> InvalidSources => new()
