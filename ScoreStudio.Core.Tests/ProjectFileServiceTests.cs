@@ -183,6 +183,19 @@ public sealed class ProjectFileServiceTests : IDisposable
     }
 
     [Fact]
+    public void Load_TextFile_ShowsOnlyKoreanMessage_AndKeepsParserError()
+    {
+        // A Korean note saved from Notepad as .scoreproj: what a user is most likely to open by mistake.
+        var path = PathFor("메모.scoreproj");
+        File.WriteAllText(path, "한글 메모입니다");
+
+        var ex = Assert.Throws<ProjectFileException>(() => ProjectFileService.Load(path));
+
+        Assert.Equal("프로젝트 파일이 손상되었거나 형식이 올바르지 않습니다 (1번째 줄 부근).", ex.Message);
+        Assert.IsAssignableFrom<System.Text.Json.JsonException>(ex.InnerException);
+    }
+
+    [Fact]
     public void Load_BinaryGarbage_ThrowsProjectFileException()
     {
         var path = PathFor("garbage.scoreproj");

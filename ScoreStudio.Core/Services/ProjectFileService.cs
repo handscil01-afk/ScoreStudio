@@ -100,9 +100,10 @@ public static class ProjectFileService
         }
         catch (JsonException ex)
         {
+            // The parser's own message is English and technical, so it stays in InnerException only.
             var location = ex.LineNumber is long line ? $" ({line + 1}번째 줄 부근)" : "";
             throw new ProjectFileException(
-                $"프로젝트 파일이 손상되었거나 형식이 올바르지 않습니다{location}.\n\n세부 정보: {ex.Message}", ex);
+                $"프로젝트 파일이 손상되었거나 형식이 올바르지 않습니다{location}.", ex);
         }
     }
 
