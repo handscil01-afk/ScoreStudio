@@ -9,7 +9,7 @@ namespace ScoreStudio.Models;
 public sealed class ScoreProject
 {
     /// <summary>The project file schema version this build reads and writes.</summary>
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string Title { get; set; } = "새 악보";
@@ -186,6 +186,12 @@ public sealed class ScoreEvent
 
     /// <summary>Voice number within the part, starting at 1.</summary>
     public int Voice { get; set; } = 1;
+
+    /// <summary>
+    /// Beams at this note, one entry per beam level: index 0 is the 8th-note beam, index 1 the 16th-note beam, and so on.
+    /// Empty when the note is not beamed (it keeps its flag). In a chord, the first note carries the chord's beams.
+    /// </summary>
+    public List<BeamType> Beams { get; set; } = new();
 }
 
 public sealed class ScoreLyric
@@ -199,6 +205,20 @@ public sealed class ScoreLyric
 }
 
 /// <summary>Where a syllable sits in its word; a hyphen follows Begin and Middle.</summary>
+/// <summary>What a beam does at one note, as in MusicXML's &lt;beam&gt;.</summary>
+public enum BeamType
+{
+    Begin,
+    Continue,
+    End,
+
+    /// <summary>A short beam pointing right from this note only (e.g. a 16th followed by a dotted 8th).</summary>
+    ForwardHook,
+
+    /// <summary>A short beam pointing left from this note only (e.g. the 16th after a dotted 8th).</summary>
+    BackwardHook,
+}
+
 public enum LyricSyllabic
 {
     Single,

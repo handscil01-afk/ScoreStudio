@@ -143,6 +143,7 @@ public sealed class MusicXmlImporterTests : IDisposable
     [InlineData("unsupported-features.musicxml")]
     [InlineData("hymn-repeats-chords.musicxml")]
     [InlineData("layout-features.musicxml")]
+    [InlineData("beams.musicxml")]
     public void ImportedCounts_MatchCountsTakenDirectlyFromTheSource(string file)
     {
         var source = XDocument.Load(Sample(file));
@@ -158,7 +159,8 @@ public sealed class MusicXmlImporterTests : IDisposable
             Chords: source.Descendants("harmony").Count(h => h.Element("root") is not null),
             RepeatStarts: source.Descendants("repeat").Count(r => (string?)r.Attribute("direction") == "forward"),
             RepeatEnds: source.Descendants("repeat").Count(r => (string?)r.Attribute("direction") == "backward"),
-            Voltas: source.Descendants("ending").Count(e => (string?)e.Attribute("type") == "start"));
+            Voltas: source.Descendants("ending").Count(e => (string?)e.Attribute("type") == "start"),
+            BeamGroups: notes.Count(n => n.Elements("beam").Any(b => (string?)b.Attribute("number") is null or "1" && b.Value == "begin")));
 
         var result = MusicXmlImporter.ImportFile(Sample(file));
         var measures = result.Project.Parts.SelectMany(p => p.Measures).ToList();
@@ -172,6 +174,7 @@ public sealed class MusicXmlImporterTests : IDisposable
         Assert.Equal(expected.LyricSyllables, events.Sum(e => e.Lyrics.Count));
         Assert.Equal(expected.Ties, events.Count(e => e.TieToNext));
         Assert.Equal(expected.Chords, measures.Sum(m => m.ChordSymbols.Count));
+        Assert.Equal(expected.BeamGroups, events.Count(e => e.Beams.FirstOrDefault(BeamType.End) == BeamType.Begin && e.Beams.Count > 0));
         Assert.Equal(
             (expected.RepeatStarts, expected.RepeatEnds, expected.Voltas),
             (measures.Count(m => m.RepeatStart), measures.Count(m => m.RepeatEnd), measures.Count(m => m.Volta is not null)));
@@ -268,6 +271,42 @@ public sealed class MusicXmlImporterTests : IDisposable
 
         Assert.Equal(new[] { 3, 5 }, melody.Measures.Where(m => m.SystemBreak).Select(m => m.Number));
         Assert.Equal(new[] { 5 }, melody.Measures.Where(m => m.PageBreak).Select(m => m.Number));
+    }
+
+    [Fact]
+    public void Beams_AreStoredPerLevelAsInTheSource()
+    {
+        var result = MusicXmlImporter.ImportFile(Sample("beams.musicxml"));
+        var measures = result.Project.Parts.Single().Measures;
+
+        Assert.Empty(result.Warnings);
+        string Beams(ScoreEvent e) => e.Beams.Count == 0 ? "-" : string.Join("+", e.Beams);
+        Assert.Equal(
+            new[] { "Begin", "End+BackwardHook", "Begin+ForwardHook", "End", "Begin+Begin", "Continue+Continue", "Continue+Continue", "End+End", "-", "-" },
+            measures[1].Events.Select(Beams));
+        Assert.Equal(new[] { "Begin", "Continue", "-", "-" }, measures[2].Events.Select(Beams)); // never ended: stored as written
+        Assert.Equal(new[] { "Begin", "Continue", "Continue", "End" }, measures[4].Events.Take(4).Select(Beams));
+    }
+
+    [Theory]
+    [InlineData("""<beam number="1">sideways</beam>""")]
+    [InlineData("""<beam number="2">begin</beam>""")]
+    [InlineData("""<beam number="1">begin</beam><beam number="1">end</beam>""")]
+    public void UnreadableBeams_AreDroppedWithAWarning(string beams)
+    {
+        var xml = $"""
+            <score-partwise>
+              <part-list><score-part id="P1"><part-name>A</part-name></score-part></part-list>
+              <part id="P1"><measure number="1"><attributes><divisions>2</divisions></attributes>
+                <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration>{beams}</note>
+              </measure></part>
+            </score-partwise>
+            """;
+
+        var result = MusicXmlImporter.ImportXml(xml, "beams");
+
+        Assert.Empty(result.Project.Parts.Single().Measures.Single().Events.Single().Beams);
+        Assert.Equal("읽을 수 없는 빔(음표 잇기) 정보는 무시함", Assert.Single(result.Warnings).Message);
     }
 
     [Fact]
@@ -458,6 +497,7 @@ public sealed class MusicXmlImporterTests : IDisposable
     [InlineData("unsupported-features.musicxml")]
     [InlineData("hymn-repeats-chords.musicxml")]
     [InlineData("layout-features.musicxml")]
+    [InlineData("beams.musicxml")]
     public void ImportedProject_SurvivesSaveAndReopen(string file)
     {
         var imported = MusicXmlImporter.ImportFile(Sample(file)).Project;

@@ -34,13 +34,14 @@
 | `direction/octave-shift` (`down`=8va, `up`=8vb, `size` 8·15, `stop`) | 음표마다 옥타브 기호 값(1=8va, 2=15ma, −1=8vb, −2=15mb). 음높이는 실제 소리 그대로 — 스키마 5 |
 | `staff-details print-object="no"/"yes"` | 마디마다 숨긴 보표 목록(Finale의 "빈 보표 숨기기") — 스키마 5 |
 | `print new-system="yes"`, `new-page="yes"` | 원본의 줄 나눔과 페이지 나눔 — 스키마 5 |
+| `beam` (`number` 1~6, `begin`/`continue`/`end`/`forward hook`/`backward hook`) | 음표마다 단계별 빔 정보 — 스키마 6 |
 
 ### 경고를 내고 가져오지 않는 것
 꾸밈음, 큐 음표, 타악기 음표(`unpitched`), 이음줄, 잇단음표 괄호 표시, 아티큘레이션, 장식음, 페르마타, 셈여림, 빠르기·글자 지시, 크레셴도, 페달, 세뇨·코다, 로마 숫자 화성 기호, 코드 다이어그램, 숫자 저음, 울림 붙임줄(let ring), 미분음, 22ma 이상의 옥타브 기호(15ma로 가져옴), 지원하지 않는 음자리표(비슷한 음자리표로 바꿈).
 - 경고는 종류별로 묶고 개수와 처음 나온 위치(파트·마디)를 보여 준다.
 
 ### 경고 없이 무시하는 것
-화면 표시용 정보로, 나중에 ScoreStudio가 직접 다시 계산한다: `type`, `dot`, `stem`, `beam`, `accidental`(표시용), `notehead`, `print`의 줄·페이지 나눔 외 속성, `defaults`, `credit`, 좌표·글꼴 속성, `sound`, `midi-instrument`.
+화면 표시용 정보로, 나중에 ScoreStudio가 직접 다시 계산한다: `type`, `dot`, `stem`, `accidental`(표시용), `notehead`, `print`의 줄·페이지 나눔 외 속성, `defaults`, `credit`, 좌표·글꼴 속성, `sound`, `midi-instrument`.
 
 ### 지원하지 않는 파일
 `score-timewise`, MusicXML이 아닌 XML, 손상된 압축 파일은 한국어 오류로 거절한다.

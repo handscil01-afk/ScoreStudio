@@ -671,6 +671,7 @@ public static class MusicXmlImporter
 
             item.Lyrics = ReadLyrics(note);
             item.TieToNext = item.Kind == "Note" && ReadTie(note);
+            item.Beams = ReadBeams(note);
             ReadNotations(note);
             measure.Events.Add(item);
         }
@@ -758,6 +759,43 @@ public static class MusicXmlImporter
             }
 
             return lyrics.OrderBy(l => l.Verse).ToList();
+        }
+
+        /// <summary>
+        /// &lt;beam number="n"&gt; for each beam level at this note. Levels must run 1, 2, … without gaps; anything else
+        /// is dropped with a warning and the note keeps its flag.
+        /// </summary>
+        private List<BeamType> ReadBeams(XElement note)
+        {
+            var beams = new SortedDictionary<int, BeamType>();
+            foreach (var beam in note.Elements("beam"))
+            {
+                var number = beam.Attribute("number") is { } attribute
+                    && int.TryParse(attribute.Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : 1;
+                BeamType? type = beam.Value.Trim() switch
+                {
+                    "begin" => BeamType.Begin,
+                    "continue" => BeamType.Continue,
+                    "end" => BeamType.End,
+                    "forward hook" => BeamType.ForwardHook,
+                    "backward hook" => BeamType.BackwardHook,
+                    _ => null,
+                };
+
+                if (type is null || number < 1 || number > 6 || !beams.TryAdd(number, type.Value))
+                {
+                    Warn("읽을 수 없는 빔(음표 잇기) 정보는 무시함");
+                    return new List<BeamType>();
+                }
+            }
+
+            if (beams.Count > 0 && beams.Keys.Last() != beams.Count)
+            {
+                Warn("읽을 수 없는 빔(음표 잇기) 정보는 무시함");
+                return new List<BeamType>();
+            }
+
+            return beams.Values.ToList();
         }
 
         private bool ReadTie(XElement note)

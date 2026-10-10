@@ -183,7 +183,7 @@ public sealed class ProjectFileServiceTests : IDisposable
     }
 
     [Fact]
-    public void Load_Version4File_HasNoClefChangesHiddenStavesBreaksOrOctaveLines()
+    public void Load_Version4File_HasNoClefChangesHiddenStavesBreaksOctaveLinesOrBeams()
     {
         var project = ProjectFileService.Parse("""
             { "SchemaVersion": 4, "Parts": [ { "Measures": [ { "Events": [ { "Kind": "Note", "MidiPitch": 72 } ] } ] } ] }
@@ -195,10 +195,11 @@ public sealed class ProjectFileServiceTests : IDisposable
         Assert.False(measure.SystemBreak);
         Assert.False(measure.PageBreak);
         Assert.Equal(0, measure.Events[0].OctaveShift);
+        Assert.Empty(measure.Events[0].Beams);
     }
 
     [Fact]
-    public void SaveThenLoad_PreservesClefChangesHiddenStavesBreaksAndOctaveLines()
+    public void SaveThenLoad_PreservesClefChangesHiddenStavesBreaksOctaveLinesAndBeams()
     {
         var project = ScoreProject.CreateNew();
         project.Parts[0].Staves = new List<ScoreStaff> { new() { Clef = ClefType.Treble }, new() { Clef = ClefType.Bass } };
@@ -207,7 +208,7 @@ public sealed class ProjectFileServiceTests : IDisposable
         measure.HiddenStaves.Add(0);
         measure.SystemBreak = true;
         measure.PageBreak = true;
-        measure.Events.Add(new ScoreEvent { Kind = "Note", MidiPitch = 84, NotationSpelling = "C6", OctaveShift = 1 });
+        measure.Events.Add(new ScoreEvent { Kind = "Note", MidiPitch = 84, NotationSpelling = "C6", OctaveShift = 1, Beams = { BeamType.Begin, BeamType.ForwardHook } });
         measure.Events.Add(new ScoreEvent { Kind = "Note", MidiPitch = 31, NotationSpelling = "G1", OctaveShift = -2, Staff = 1 });
         var path = PathFor("layout.scoreproj");
 
@@ -219,6 +220,8 @@ public sealed class ProjectFileServiceTests : IDisposable
         Assert.Equal(new[] { 0 }, loaded.HiddenStaves);
         Assert.True(loaded.SystemBreak && loaded.PageBreak);
         Assert.Equal(new[] { 1, -2 }, loaded.Events.Select(e => e.OctaveShift));
+        Assert.Equal(new[] { BeamType.Begin, BeamType.ForwardHook }, loaded.Events[0].Beams);
+        Assert.Empty(loaded.Events[1].Beams);
         Assert.False(ProjectFileService.Load(path).Parts[0].Measures[0].SystemBreak);
     }
 
@@ -307,6 +310,8 @@ public sealed class ProjectFileServiceTests : IDisposable
         { """{ "SchemaVersion": 5, "Parts": [ { "Measures": [ { "ClefChanges": [ null ] } ] } ] }""", "음자리표 변경" },
         { """{ "SchemaVersion": 5, "Parts": [ { "Measures": [ { "HiddenStaves": [ 1 ] } ] } ] }""", "숨긴 보표" },
         { """{ "SchemaVersion": 5, "Parts": [ { "Measures": [ { "Events": [ { "OctaveShift": 3 } ] } ] } ] }""", "옥타브 기호 값(3)" },
+        { """{ "SchemaVersion": 6, "Parts": [ { "Measures": [ { "Events": [ { "Beams": [ "Begin", "Begin", "Begin", "Begin", "Begin", "Begin", "Begin" ] } ] } ] } ] }""", "빔 정보" },
+        { """{ "SchemaVersion": 6, "Parts": [ { "Measures": [ { "Events": [ { "Beams": [ "Sideways" ] } ] } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": "Percussion" } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": 7 } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
     };

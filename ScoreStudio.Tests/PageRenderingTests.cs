@@ -110,12 +110,32 @@ public sealed class PageRenderingTests
         }
     }
 
+    /// <summary>Each beam band fills at least a quarter of its bounding box (a band rising one space fills a third).</summary>
+    private static void AssertBeamsDrawn(PageLayout page)
+    {
+        var beams = page.Items.OfType<BeamItem>().ToList();
+        if (beams.Count == 0) return;
+
+        var (with, width, height, _) = Render(page);
+        var (without, _, _, _) = Render(Without(page, item => item is BeamItem));
+        var pixelsPerMm = Dpi / 25.4;
+        foreach (var beam in beams)
+        {
+            var top = Math.Min(beam.Y1, beam.Y2);
+            var bottom = Math.Max(beam.Y1, beam.Y2) + beam.Thickness;
+            var ink = InkAdded(with, without, width, height, beam.X1, top, beam.X2, bottom);
+            var area = (beam.X2 - beam.X1) * (bottom - top) * pixelsPerMm * pixelsPerMm;
+            Assert.True(ink >= area / 4, $"page {page.Number}: beam at ({beam.X1:F1}, {beam.Y1:F1}) mm added only {ink} dark pixels of {area:F0}");
+        }
+    }
+
     [Theory]
     [InlineData("simple-melody")]
     [InlineData("piano-grand-staff")]
     [InlineData("unsupported-features")]
     [InlineData("hymn-repeats-chords")]
     [InlineData("layout-features")]
+    [InlineData("beams")]
     public void ImportedMusicXml_DrawsClefsAndNoteheadsWhereTheLayoutPutsThem(string sample)
     {
         RunSta(() =>
@@ -125,6 +145,7 @@ public sealed class PageRenderingTests
 
             AssertGlyphsDrawn(page, Clefs, 0.5, 8, 5, 6, 100, "clef");
             AssertGlyphsDrawn(page, Noteheads, 0.5, 1.2, 3, 1.2, 15, "notehead");
+            AssertBeamsDrawn(page);
 
             SavePng(Render(page).Bitmap, $"preview-musicxml-{sample}.png");
         });

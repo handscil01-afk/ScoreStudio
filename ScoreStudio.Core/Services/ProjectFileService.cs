@@ -130,10 +130,14 @@ public static class ProjectFileService
             throw new ProjectFileException($"지원하지 않는 프로젝트 버전입니다: {version}");
 
         // Older files lack newer fields (version 1: staves; version 2: key, staff, voice; version 3: repeats, voltas,
-        // chord symbols, all lyric verses, ties; version 4: clef changes, hidden staves, breaks, octave lines).
+        // chord symbols, all lyric verses, ties; version 4: clef changes, hidden staves, breaks, octave lines;
+        // version 5: beams, so older files show flags until the score is imported again).
         // Validate and the model defaults fill them in, and a version 1–3 "Lyric" becomes verse 1.
         // Saving always writes the current version.
     }
+
+    /// <summary>Beams for notes down to 256ths: more levels than that do not exist in notation.</summary>
+    private const int MaxBeamLevels = 6;
 
     /// <summary>Fills in missing optional values and rejects data that would break later code.</summary>
     private static void Validate(ScoreProject project)
@@ -223,6 +227,10 @@ public static class ProjectFileService
                         throw Corrupt($"{where}의 {e + 1}번째 음표/쉼표의 성부 번호({item.Voice})가 올바르지 않습니다.");
                     if (item.OctaveShift is < -2 or > 2)
                         throw Corrupt($"{where}의 {e + 1}번째 음표의 옥타브 기호 값({item.OctaveShift})이 올바르지 않습니다.");
+
+                    item.Beams ??= new List<BeamType>();
+                    if (item.Beams.Count > MaxBeamLevels || item.Beams.Any(b => !Enum.IsDefined(b)))
+                        throw Corrupt($"{where}의 {e + 1}번째 음표의 빔 정보가 올바르지 않습니다.");
 
                     item.Lyrics ??= new List<ScoreLyric>();
                     if (!string.IsNullOrEmpty(item.LegacyLyric) && item.Lyrics.All(l => l?.Verse != 1))

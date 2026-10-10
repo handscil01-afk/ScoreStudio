@@ -39,6 +39,23 @@ public static class PageRenderer
                     dc.DrawLine(pen, new Point(line.X1 * DipPerMm, line.Y1 * DipPerMm), new Point(line.X2 * DipPerMm, line.Y2 * DipPerMm));
                     break;
 
+                case BeamItem beam:
+                    var band = new StreamGeometry();
+                    using (var context = band.Open())
+                    {
+                        context.BeginFigure(new Point(beam.X1 * DipPerMm, beam.Y1 * DipPerMm), isFilled: true, isClosed: true);
+                        context.PolyLineTo(new[]
+                        {
+                            new Point(beam.X2 * DipPerMm, beam.Y2 * DipPerMm),
+                            new Point(beam.X2 * DipPerMm, (beam.Y2 + beam.Thickness) * DipPerMm),
+                            new Point(beam.X1 * DipPerMm, (beam.Y1 + beam.Thickness) * DipPerMm),
+                        }, isStroked: false, isSmoothJoin: false);
+                    }
+
+                    band.Freeze();
+                    dc.DrawGeometry(Brushes.Black, null, band);
+                    break;
+
                 case GlyphItem glyph when music is { } musicTypeface:
                     var symbol = Format(glyph.Glyph.ToString(), musicTypeface, glyph.Size, pixelsPerDip);
                     dc.DrawText(symbol, new Point(glyph.X * DipPerMm, glyph.Y * DipPerMm - symbol.Baseline));

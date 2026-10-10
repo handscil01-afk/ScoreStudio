@@ -432,7 +432,7 @@ public static class ScoreLayoutEngine
 
         // Measures: clef/key/time changes, notes and rests, barlines.
         var measureLayouts = new List<MeasureLayout>();
-        var placed = new List<(int Slot, PreparedChord Chord, double X)>();
+        var placed = new List<PlacedChord>();
         var x = left + plan.HeaderWidth;
         for (var k = 0; k < plan.MeasureCount; k++)
         {
@@ -509,7 +509,7 @@ public static class ScoreLayoutEngine
 
     private static void DrawMeasureNotes(
         List<DrawItem> items, PreparedMeasure measure, List<StaffSlot> slots, double[] staffTops,
-        double contentLeft, double measureRight, double scale, double sp, List<(int Slot, PreparedChord Chord, double X)> placed)
+        double contentLeft, double measureRight, double scale, double sp, List<PlacedChord> placed)
     {
         if (measure.IsEmpty) return;
 
@@ -548,17 +548,195 @@ public static class ScoreLayoutEngine
             }
             else
             {
-                DrawChord(items, chord, onsetX[chord.Start], staffTop, sp);
-                placed.Add((slotIndex, chord, onsetX[chord.Start]));
+                var (top, bottom) = DrawChord(items, chord, onsetX[chord.Start], staffTop, sp);
+                placed.Add(new PlacedChord(slotIndex, chord, onsetX[chord.Start], top, bottom));
             }
         }
+
+        foreach (var beam in measure.Beams)
+        {
+            var slotIndex = slots.FindIndex(s => s.PartIndex == beam.Chords[0].PartIndex && s.StaffIndex == beam.Chords[0].Staff);
+            if (slotIndex < 0) continue;
+
+            var stemEnds = DrawBeam(items, beam, beam.Chords.Select(c => onsetX[c.Start]).ToList(), staffTops[slotIndex], sp);
+            for (var i = 0; i < beam.Chords.Count; i++)
+            {
+                var at = placed.FindLastIndex(p => ReferenceEquals(p.Chord, beam.Chords[i]));
+                placed[at] = placed[at] with { Top = Math.Min(placed[at].Top, stemEnds[i].Top), Bottom = Math.Max(placed[at].Bottom, stemEnds[i].Bottom) };
+            }
+        }
+    }
+
+    /// <summary>A drawn chord and how far up and down its heads, stem and beams reach, in mm.</summary>
+    private sealed record PlacedChord(int Slot, PreparedChord Chord, double X, double Top, double Bottom);
+
+    private const double BeamThickness = 0.5;
+    private const double BeamSpacing = 0.25;
+    private const double BeamHookLength = 1.1;
+
+    /// <summary>
+    /// Draws the stems and beams of a beam group. The beam follows the first and last notes, rising at most a quarter
+    /// space per staff step and one space overall, and lies flat when an inner note pokes out further than both ends.
+    /// It sits so that the shortest stem is 3.5 spaces (more with three or more beams) and every stem reaches the
+    /// middle line. Returns how far each chord now reaches up and down.
+    /// </summary>
+    private static List<(double Top, double Bottom)> DrawBeam(List<DrawItem> items, PreparedBeam beam, List<double> onsetXs, double staffTop, double sp)
+    {
+        var chords = beam.Chords;
+        var up = beam.StemUp;
+        var thickness = Smufl.StemThickness * sp;
+        var middle = staffTop + 2 * sp;
+        var direction = up ? 1 : -1; // from the outer beam towards the notes
+
+        var stemX = new double[chords.Count];
+        var nearY = new double[chords.Count];
+        var farY = new double[chords.Count];
+        var nearPosition = new int[chords.Count];
+        for (var i = 0; i < chords.Count; i++)
+        {
+            var high = chords[i].Notes.Max(n => n.Position);
+            var low = chords[i].Notes.Min(n => n.Position);
+            var headWidth = Smufl.NoteheadWidth(chords[i].Value.Type) * sp;
+            stemX[i] = up ? onsetXs[i] + headWidth - thickness / 2 : onsetXs[i] + thickness / 2;
+            nearPosition[i] = up ? high : low;
+            nearY[i] = StaffY(staffTop, nearPosition[i], sp);
+            farY[i] = up ? StaffY(staffTop, low, sp) - Smufl.StemAttachY * sp : StaffY(staffTop, high, sp) + Smufl.StemAttachY * sp;
+        }
+
+        var levels = chords.Max(c => Math.Max(c.Beams.Count, BeamLevels(c)));
+        var minimumStem = (3.5 + Math.Max(0, levels - 2) * (BeamThickness + BeamSpacing)) * sp;
+
+        // Slope from the outer notes, unless an inner note sticks out beyond both of them.
+        var x0 = stemX[0];
+        var width = stemX[^1] - x0;
+        var inner = nearY.Skip(1).SkipLast(1).ToList();
+        var innerPokesOut = inner.Count > 0 && (up
+            ? inner.Min() < Math.Min(nearY[0], nearY[^1])
+            : inner.Max() > Math.Max(nearY[0], nearY[^1]));
+        var steps = nearPosition[^1] - nearPosition[0];
+        var rise = innerPokesOut || width <= 0
+            ? 0
+            : -Math.Sign(steps) * Math.Min(Math.Min(0.25 * Math.Abs(steps), 1.0), 0.25 * width / sp) * sp;
+        var slope = width > 0 ? rise / width : 0;
+
+        // Place the beam where every stem is long enough and reaches the middle line.
+        var offset = up ? double.MaxValue : double.MinValue;
+        for (var i = 0; i < chords.Count; i++)
+        {
+            var dx = slope * (stemX[i] - x0);
+            offset = up
+                ? Math.Min(offset, Math.Min(nearY[i] - minimumStem, middle) - dx)
+                : Math.Max(offset, Math.Max(nearY[i] + minimumStem, middle) - dx);
+        }
+
+        double BeamY(double x) => offset + slope * (x - x0);
+
+        var reach = new List<(double Top, double Bottom)>();
+        for (var i = 0; i < chords.Count; i++)
+        {
+            var end = BeamY(stemX[i]);
+            items.Add(new LineItem(stemX[i], farY[i], stemX[i], end, thickness));
+            reach.Add(up ? (end, farY[i]) : (farY[i], end));
+        }
+
+        for (var level = 0; level < levels; level++)
+        {
+            var shift = direction * level * (BeamThickness + BeamSpacing) * sp;
+            void Band(double xa, double xb)
+            {
+                var top = up ? 0 : -BeamThickness * sp;
+                items.Add(new BeamItem(xa, BeamY(xa) + shift + top, xb, BeamY(xb) + shift + top, BeamThickness * sp));
+            }
+
+            var segments = BeamSegments(chords, level, out var hooks);
+            foreach (var (from, to) in segments)
+                Band(stemX[from] - thickness / 2, stemX[to] + thickness / 2);
+            foreach (var (at, forward) in hooks)
+            {
+                var neighbour = forward ? (at + 1 < chords.Count ? stemX[at + 1] : stemX[at] + 2 * BeamHookLength * sp)
+                                        : (at > 0 ? stemX[at - 1] : stemX[at] - 2 * BeamHookLength * sp);
+                var length = Math.Min(BeamHookLength * sp, Math.Abs(neighbour - stemX[at]) / 2);
+                if (forward) Band(stemX[at] - thickness / 2, stemX[at] + length);
+                else Band(stemX[at] - length, stemX[at] + thickness / 2);
+            }
+        }
+
+        return reach;
+    }
+
+    /// <summary>Beams a note value needs: one for an 8th, two for a 16th, …</summary>
+    private static int BeamLevels(PreparedChord chord) => Math.Max(0, chord.Value.Type - NoteType.Quarter);
+
+    /// <summary>
+    /// Which chords one beam level joins, and where it is only a hook. Uses the stored beams when they are consistent
+    /// for this level; otherwise joins neighbouring notes short enough for the level, and gives a lone note a hook
+    /// (pointing left at the end of the group or after a dotted note, right otherwise).
+    /// </summary>
+    private static List<(int From, int To)> BeamSegments(IReadOnlyList<PreparedChord> chords, int level, out List<(int At, bool Forward)> hooks)
+    {
+        hooks = new List<(int At, bool Forward)>();
+        if (level == 0)
+            return new List<(int From, int To)> { (0, chords.Count - 1) };
+
+        var segments = new List<(int From, int To)>();
+        var open = -1;
+        var consistent = true;
+        for (var i = 0; i < chords.Count && consistent; i++)
+        {
+            BeamType? type = chords[i].Beams.Count > level ? chords[i].Beams[level] : null;
+            switch (type)
+            {
+                case BeamType.Begin:
+                    consistent = open < 0;
+                    open = i;
+                    break;
+                case BeamType.Continue:
+                    consistent = open >= 0;
+                    break;
+                case BeamType.End:
+                    consistent = open >= 0;
+                    segments.Add((open, i));
+                    open = -1;
+                    break;
+                case BeamType.ForwardHook or BeamType.BackwardHook:
+                    consistent = open < 0;
+                    hooks.Add((i, type == BeamType.ForwardHook));
+                    break;
+                default:
+                    consistent = open < 0 && BeamLevels(chords[i]) <= level;
+                    break;
+            }
+        }
+
+        if (consistent && open < 0)
+            return segments;
+
+        // Stored beams do not describe this level: derive it from the note values.
+        segments.Clear();
+        hooks.Clear();
+        for (var i = 0; i < chords.Count;)
+        {
+            if (BeamLevels(chords[i]) <= level)
+            {
+                i++;
+                continue;
+            }
+
+            var j = i;
+            while (j + 1 < chords.Count && BeamLevels(chords[j + 1]) > level) j++;
+            if (j > i) segments.Add((i, j));
+            else hooks.Add((i, !(i == chords.Count - 1 || (i > 0 && chords[i - 1].Value.Dots > 0))));
+            i = j + 1;
+        }
+
+        return segments;
     }
 
     /// <summary>
     /// Octave lines ("8va - - -┐") over each run of notes that share a shift on a staff: above the staff for 8va/15ma,
     /// below it for 8vb/15mb, clear of the notes and their stems.
     /// </summary>
-    private static void DrawOctaveLines(List<DrawItem> items, List<(int Slot, PreparedChord Chord, double X)> placed, double[] staffTops, double sp)
+    private static void DrawOctaveLines(List<DrawItem> items, List<PlacedChord> placed, double[] staffTops, double sp)
     {
         foreach (var staff in placed.GroupBy(p => p.Slot))
         {
@@ -576,25 +754,18 @@ public static class ScoreLayoutEngine
         }
     }
 
-    private static void DrawOctaveLine(List<DrawItem> items, List<(int Slot, PreparedChord Chord, double X)> run, int shift, double staffTop, double sp)
+    private static void DrawOctaveLine(List<DrawItem> items, List<PlacedChord> run, int shift, double staffTop, double sp)
     {
         const double labelScale = 0.8;
         var above = shift > 0;
         var thickness = Smufl.StemThickness * sp;
 
         double baseline;
+        // Clear of everything drawn for the notes under the line: heads, stems, flags and beams.
         if (above)
-        {
-            var highest = run.Min(r => StaffY(staffTop, r.Chord.Notes.Max(n => n.Position), sp)
-                - (r.Chord.StemUp && r.Chord.Value.Type > NoteType.Whole ? 3.5 : 0.6) * sp);
-            baseline = Math.Min(staffTop - 1.5 * sp, highest - 0.8 * sp);
-        }
+            baseline = Math.Min(staffTop - 1.5 * sp, run.Min(r => r.Top) - 0.9 * sp);
         else
-        {
-            var lowest = run.Max(r => StaffY(staffTop, r.Chord.Notes.Min(n => n.Position), sp)
-                + (!r.Chord.StemUp && r.Chord.Value.Type > NoteType.Whole ? 3.5 : 0.6) * sp);
-            baseline = Math.Max(staffTop + 7 * sp, lowest + 2.2 * sp);
-        }
+            baseline = Math.Max(staffTop + 7 * sp, run.Max(r => r.Bottom) + 2.3 * sp);
 
         var startX = run[0].X;
         var last = run[^1];
@@ -624,7 +795,8 @@ public static class ScoreLayoutEngine
         }
     }
 
-    private static void DrawChord(List<DrawItem> items, PreparedChord chord, double x, double staffTop, double sp)
+    /// <summary>Draws a chord's heads, accidentals, dots, leger lines and (unless beamed) stem and flag; returns its top and bottom.</summary>
+    private static (double Top, double Bottom) DrawChord(List<DrawItem> items, PreparedChord chord, double x, double staffTop, double sp)
     {
         var type = chord.Value.Type;
         var headWidth = Smufl.NoteheadWidth(type) * sp;
@@ -667,8 +839,10 @@ public static class ScoreLayoutEngine
             }
         }
 
-        if (type <= NoteType.Whole)
-            return; // whole notes and breves have no stem
+        var top = StaffY(staffTop, high, sp) - 0.5 * sp;
+        var bottom = StaffY(staffTop, low, sp) + 0.5 * sp;
+        if (type <= NoteType.Whole || chord.IsBeamed)
+            return (top, bottom); // whole notes and breves have no stem; beamed stems come with the beam
 
         // Stem: from the far note's attachment point to 3.5 spaces past the near note, reaching at least the middle line.
         var thickness = Smufl.StemThickness * sp;
@@ -696,6 +870,8 @@ public static class ScoreLayoutEngine
             var flagY = y2 + Smufl.FlagAnchorY(type, chord.StemUp) * sp;
             items.Add(new GlyphItem(flag, stemX - thickness / 2, flagY, 4 * sp));
         }
+
+        return (Math.Min(top, Math.Min(y1, y2)), Math.Max(bottom, Math.Max(y1, y2)));
     }
 
     private static void DrawTimeSignature(List<DrawItem> items, MeasureInfo measure, double x, double[] staffTops, double sp)

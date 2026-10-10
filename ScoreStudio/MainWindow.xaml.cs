@@ -290,7 +290,7 @@ public partial class MainWindow : Window
     private void About_Click(object sender, RoutedEventArgs e)
     {
         MessageBox.Show(this,
-            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·조표·박자표·마디선·음표·쉼표, 여러 페이지, 확대/축소), MusicXML 가져오기\n저장되지만 아직 화면에 표시하지 않음: 가사, 코드 이름, 붙임줄, 도돌이표·볼타 (빔도 아직 그리지 않음)\n아직 지원하지 않음: 음표 입력, MUSX 변환, PDF 출력",
+            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·조표·박자표·마디선·음표·쉼표·빔·음자리표 변경·옥타브 기호, 여러 페이지, 확대/축소), MusicXML 가져오기\n저장되지만 아직 화면에 표시하지 않음: 가사, 코드 이름, 붙임줄, 도돌이표·볼타\n아직 지원하지 않음: 음표 입력, MUSX 변환, PDF 출력",
             "개발 상태", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 

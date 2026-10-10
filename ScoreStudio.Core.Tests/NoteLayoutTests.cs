@@ -161,6 +161,7 @@ public sealed class NoteLayoutTests
     [InlineData("unsupported-features.musicxml")]
     [InlineData("hymn-repeats-chords.musicxml")]
     [InlineData("layout-features.musicxml")]
+    [InlineData("beams.musicxml")]
     public void EveryImportedNoteGetsAHead_AndEveryRestAGlyph(string file)
     {
         var project = MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", file)).Project;
@@ -253,6 +254,159 @@ public sealed class NoteLayoutTests
         Assert.NotEmpty(lines);
         Assert.True(lines.Max(l => Math.Max(l.X1, l.X2)) <= system.Measures[1].Left + Sp);
         Assert.Contains(lines, l => Math.Abs(l.X1 - l.X2) < 1e-9 && l.Y2 > l.Y1);
+    }
+
+    private static readonly char[] Flags = Enumerable.Range(0, 8).Select(i => (char)(Smufl.Flag8thUp + i)).ToArray();
+
+    /// <summary>A measure's box on the page: its own width, and its system's band (halfway to the neighbouring systems).</summary>
+    private sealed record MeasureBox(double Left, double Right, double Top, double Bottom)
+    {
+        public bool Contains(double x, double y) => x > Left && x < Right && y > Top && y < Bottom;
+    }
+
+    /// <summary>The beams sample fits on one page; its measures in order, whichever system they land in.</summary>
+    private static (PageLayout Page, List<MeasureBox> Measures) BeamsSample()
+    {
+        var page = ScoreLayoutEngine.Layout(MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", "beams.musicxml")).Project).Pages.Single();
+        var systems = page.Systems;
+        return (page, systems.SelectMany((s, i) => s.Measures.Select(m => new MeasureBox(
+            m.Left, m.Right,
+            i == 0 ? 0 : (systems[i - 1].Bottom + s.Top) / 2,
+            i == systems.Count - 1 ? page.Height : (s.Bottom + systems[i + 1].Top) / 2))).ToList());
+    }
+
+    /// <summary>Stems in a measure, left to right: vertical lines as thick as a stem.</summary>
+    private static List<LineItem> Stems(PageLayout page, MeasureBox measure) =>
+        page.Items.OfType<LineItem>()
+            .Where(l => l.X1 == l.X2 && Math.Abs(l.Thickness - Smufl.StemThickness * Sp) < 1e-9 && measure.Contains(l.X1, (l.Y1 + l.Y2) / 2))
+            .OrderBy(l => l.X1).ToList();
+
+    private static List<BeamItem> Beams(PageLayout page, MeasureBox measure) =>
+        page.Items.OfType<BeamItem>().Where(b => measure.Contains(b.X1, b.Y1) && measure.Contains(b.X2, b.Y2)).OrderBy(b => b.X1).ThenBy(b => b.Y1).ToList();
+
+    /// <summary>The note end of a stem (where the heads are) and the free end (where a beam or flag goes).</summary>
+    private static (double NoteEnd, double Tip, bool Up) Ends(LineItem stem) =>
+        stem.Y2 < stem.Y1 ? (stem.Y1, stem.Y2, true) : (stem.Y1, stem.Y2, false);
+
+    private static double TopEdgeAt(BeamItem beam, double x) => beam.Y1 + (beam.Y2 - beam.Y1) * (x - beam.X1) / (beam.X2 - beam.X1);
+
+    [Fact]
+    public void Beams_FollowTheSource_AndUnbeamedOrBrokenGroupsKeepTheirFlags()
+    {
+        var (page, measures) = BeamsSample();
+
+        // 2 eighth groups, 2 dotted groups with a hook each, a 16th group (2 beams), 2 voices, and 16ths with a derived second beam.
+        Assert.Equal(new[] { 2, 6, 0, 2, 2 }, measures.Select(m => Beams(page, m).Count));
+
+        // Flags only on the two unbeamed eighths of measure 2 and the never-ended group of measure 3.
+        var flags = page.Items.OfType<GlyphItem>().Where(g => Flags.Contains(g.Glyph)).ToList();
+        Assert.Equal(new[] { 0, 2, 2, 0, 0 }, measures.Select(m => flags.Count(f => m.Contains(f.X, f.Y))));
+    }
+
+    [Fact]
+    public void BeamedStems_ShareADirection_EndOnTheBeam_AndAreLongEnough()
+    {
+        var (page, measures) = BeamsSample();
+
+        // Measure 1: C5–F5 sit high (stems down), G4–C5 sit low (stems up). Measure 4: voice 1 up, voice 2 down.
+        Assert.Equal(new[] { false, false, false, false, true, true, true, true }, Stems(page, measures[0]).Select(s => Ends(s).Up));
+        var m4 = Stems(page, measures[3]);
+        Assert.Equal(5, m4.Count(s => Ends(s).Up));   // voice 1: four eighths and a half note
+        Assert.Equal(5, m4.Count(s => !Ends(s).Up));  // voice 2 likewise
+
+        foreach (var measure in measures)
+        {
+            var beams = Beams(page, measure);
+            foreach (var stem in Stems(page, measure))
+            {
+                var spanning = beams.Where(b => b.X1 <= stem.X1 && b.X2 >= stem.X1).ToList();
+                if (spanning.Count == 0) continue;
+
+                // The stem ends on the outer edge of the outermost beam: the top edge for stems up, the bottom edge for stems down.
+                var (noteEnd, tip, up) = Ends(stem);
+                var outer = up ? spanning.Min(b => TopEdgeAt(b, stem.X1)) : spanning.Max(b => TopEdgeAt(b, stem.X1) + b.Thickness);
+                Assert.Equal(outer, tip, 6);
+                Assert.True(Math.Abs(tip - noteEnd) >= 3.5 * Sp - Smufl.StemAttachY * Sp - 1e-6, $"stem at {stem.X1:F1} is {Math.Abs(tip - noteEnd) / Sp:F2} spaces");
+            }
+
+            Assert.All(beams, b => Assert.True(Math.Abs(b.Y2 - b.Y1) <= 1.0 * Sp + 1e-9, "a beam rises at most one space"));
+        }
+    }
+
+    [Fact]
+    public void Hooks_PointTowardsTheirOwnBeat_AndAMissingSecondBeamIsDerivedFromTheNoteValues()
+    {
+        var (page, measures) = BeamsSample();
+        var m2 = measures[1];
+        var stems = Stems(page, m2);
+        var hooks = Beams(page, m2).Where(b => b.X2 - b.X1 <= 1.2 * Sp).ToList();
+
+        // A4. B4 (hook left from the 16th), C5 B4. (hook right from the 16th).
+        Assert.Equal(2, hooks.Count);
+        Assert.Equal(stems[1].X1 + stems[1].Thickness / 2, hooks[0].X2, 6);
+        Assert.Equal(stems[2].X1 - stems[2].Thickness / 2, hooks[1].X1, 6);
+
+        // Measure 5 stores only the first beam of its four 16ths; both beams still span the whole group.
+        var m5 = measures[4];
+        var m5Stems = Stems(page, m5).Take(4).ToList();
+        Assert.All(Beams(page, m5), b =>
+        {
+            Assert.Equal(m5Stems[0].X1 - m5Stems[0].Thickness / 2, b.X1, 6);
+            Assert.Equal(m5Stems[3].X1 + m5Stems[3].Thickness / 2, b.X2, 6);
+        });
+    }
+
+    /// <summary>
+    /// Every MusicXML sample, plus the scores in the folder named by SCORESTUDIO_EXTRA_SCORES when it is set. That folder
+    /// is for real scores that must not go into the repository (copyright): the same rules then run on them locally.
+    /// </summary>
+    public static TheoryData<string> AllScores()
+    {
+        var data = new TheoryData<string>();
+        foreach (var file in Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml"), "*.musicxml").Order())
+            data.Add(file);
+
+        var extra = Environment.GetEnvironmentVariable("SCORESTUDIO_EXTRA_SCORES");
+        if (!string.IsNullOrEmpty(extra) && Directory.Exists(extra))
+        {
+            foreach (var file in Directory.GetFiles(extra).Where(f => f.EndsWith(".musicxml", StringComparison.OrdinalIgnoreCase)
+                         || f.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".mxl", StringComparison.OrdinalIgnoreCase)).Order())
+                data.Add(file);
+        }
+
+        return data;
+    }
+
+    /// <summary>Rules that hold for any score: beamed stems end exactly on their beam and carry no flag.</summary>
+    [Theory]
+    [MemberData(nameof(AllScores))]
+    public void BeamedStemsEndOnTheirBeam_AndHaveNoFlag_InEveryScore(string file)
+    {
+        var layout = ScoreLayoutEngine.Layout(MusicXmlImporter.ImportFile(file).Project);
+        var name = Path.GetFileName(file);
+        foreach (var page in layout.Pages)
+        {
+            var beams = page.Items.OfType<BeamItem>().ToList();
+            var flags = page.Items.OfType<GlyphItem>().Where(g => Flags.Contains(g.Glyph)).ToList();
+
+            // Stems are vertical lines as thick as a stem and at least two spaces long (octave-line hooks are one space).
+            var stems = page.Items.OfType<LineItem>().Where(l => l.X1 == l.X2
+                && Math.Abs(l.Thickness - Smufl.StemThickness * Sp) < 1e-9 && Math.Abs(l.Y2 - l.Y1) > 2 * Sp);
+            foreach (var stem in stems)
+            {
+                // A stem's beams are the ones it runs into (beams of other staves nearby do not count).
+                var (noteEnd, tip, up) = Ends(stem);
+                var (low, high) = (Math.Min(noteEnd, tip), Math.Max(noteEnd, tip));
+                var onStem = beams.Where(b => b.X1 <= stem.X1 && b.X2 >= stem.X1)
+                    .Where(b => TopEdgeAt(b, stem.X1) <= high + 1e-6 && TopEdgeAt(b, stem.X1) + b.Thickness >= low - 1e-6)
+                    .ToList();
+                if (onStem.Count == 0) continue;
+
+                var outer = up ? onStem.Min(b => TopEdgeAt(b, stem.X1)) : onStem.Max(b => TopEdgeAt(b, stem.X1) + b.Thickness);
+                Assert.True(Math.Abs(outer - tip) < 1e-6, $"{name} p{page.Number}: stem at ({stem.X1:F1}, {tip:F1}) mm misses its beam at {outer:F1}");
+                Assert.DoesNotContain(flags, f => Math.Abs(f.X - (stem.X1 - stem.Thickness / 2)) < 1e-6 && Math.Abs(f.Y - tip) < 2 * Sp);
+            }
+        }
     }
 
     [Fact]

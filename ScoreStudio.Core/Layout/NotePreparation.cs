@@ -33,12 +33,20 @@ internal sealed class PreparedChord
     /// <summary>Octave line the chord is under: 1 = 8va, 2 = 15ma, −1 = 8vb, −2 = 15mb.</summary>
     public int OctaveShift { get; init; }
 
+    /// <summary>The chord's beams per level (see <see cref="ScoreEvent.Beams"/>); empty when it is drawn with a flag.</summary>
+    public IReadOnlyList<BeamType> Beams { get; init; } = Array.Empty<BeamType>();
+
+    public bool IsBeamed => Beams.Count > 0;
+
     /// <summary>Room needed left of the onset for accidentals and left-displaced heads, in staff spaces.</summary>
     public double LeftExtent { get; init; }
 
     /// <summary>Room needed right of the onset before the next onset can start, in staff spaces.</summary>
     public double RightExtent { get; init; }
 }
+
+/// <summary>Chords of one voice joined by beams, all with stems in the same direction.</summary>
+internal sealed record PreparedBeam(IReadOnlyList<PreparedChord> Chords, bool StemUp);
 
 /// <summary>A clef change in the middle of a measure, drawn just before the notes at <see cref="Onset"/>.</summary>
 internal sealed record MidMeasureClef(int PartIndex, int Staff, Rational Onset, ClefType Clef);
@@ -47,6 +55,8 @@ internal sealed record MidMeasureClef(int PartIndex, int Staff, Rational Onset, 
 internal sealed class PreparedMeasure
 {
     public required List<PreparedChord> Chords { get; init; }
+
+    public IReadOnlyList<PreparedBeam> Beams { get; init; } = Array.Empty<PreparedBeam>();
 
     public IReadOnlyList<MidMeasureClef> MidMeasureClefs { get; init; } = Array.Empty<MidMeasureClef>();
     public required List<Rational> Onsets { get; init; }
@@ -77,6 +87,7 @@ internal static class NotePreparation
         var measures = new PreparedMeasure[measureCount];
         var tiedFromPrevious = new HashSet<(int Part, int Staff, int Voice, int Midi)>();
         var chordsByMeasure = Enumerable.Range(0, measureCount).Select(_ => new List<PreparedChord>()).ToArray();
+        var beamsByMeasure = Enumerable.Range(0, measureCount).Select(_ => new List<PreparedBeam>()).ToArray();
         var midClefs = Enumerable.Range(0, measureCount).Select(_ => new List<MidMeasureClef>()).ToArray();
         var lengths = new Rational[measureCount];
 
@@ -91,25 +102,36 @@ internal static class NotePreparation
                 foreach (var e in measure.Events)
                     lengths[m] = Rational.Max(lengths[m], Start(e) + Duration(e));
 
-                chordsByMeasure[m].AddRange(PrepareMeasurePart(part, p, m, measure, nominal, tiedFromPrevious, clefs));
+                PrepareMeasurePart(part, p, m, measure, nominal, tiedFromPrevious, clefs, chordsByMeasure[m], beamsByMeasure[m]);
                 foreach (var change in measure.ClefChanges.Where(c => c.PositionNumerator > 0))
                     midClefs[m].Add(new MidMeasureClef(p, change.Staff, new Rational(change.PositionNumerator, change.PositionDenominator), change.Clef));
             }
         }
 
         for (var m = 0; m < measureCount; m++)
-            measures[m] = Space(chordsByMeasure[m], midClefs[m], lengths[m] == default ? new Rational(4, 1) : lengths[m]);
+            measures[m] = Space(chordsByMeasure[m], beamsByMeasure[m], midClefs[m], lengths[m] == default ? new Rational(4, 1) : lengths[m]);
         return measures;
     }
 
     private static Rational Start(ScoreEvent e) => new(e.PositionNumerator, e.PositionDenominator);
     private static Rational Duration(ScoreEvent e) => new(e.DurationNumerator, e.DurationDenominator);
 
-    private static IEnumerable<PreparedChord> PrepareMeasurePart(
-        ScorePart part, int partIndex, int measureIndex, ScoreMeasure measure, Rational nominal,
-        HashSet<(int Part, int Staff, int Voice, int Midi)> tiedFromPrevious, ClefTimeline clefs)
+    /// <summary>A chord whose notes are known but whose stem direction may still depend on its beam group.</summary>
+    private sealed class PendingChord
     {
-        var result = new List<PreparedChord>();
+        public required ScoreEvent First { get; init; }
+        public required NoteValue Value { get; init; }
+        public required int Role { get; init; }
+        public required List<(int Position, int? Accidental)> Notes { get; init; }
+        public required IReadOnlyList<BeamType> Beams { get; set; }
+        public bool? GroupStemUp { get; set; }
+    }
+
+    private static void PrepareMeasurePart(
+        ScorePart part, int partIndex, int measureIndex, ScoreMeasure measure, Rational nominal,
+        HashSet<(int Part, int Staff, int Voice, int Midi)> tiedFromPrevious, ClefTimeline clefs,
+        List<PreparedChord> result, List<PreparedBeam> beams)
+    {
         var events = measure.Events.Select((e, i) => (Event: e, Order: i)).OrderBy(x => Start(x.Event)).ThenBy(x => x.Order).Select(x => x.Event);
 
         foreach (var staffGroup in events.GroupBy(e => e.Staff))
@@ -120,6 +142,7 @@ internal static class NotePreparation
 
             // Alteration currently in force at each diatonic step, starting from the key signature.
             var inForce = new Dictionary<int, int>();
+            var pending = new List<PendingChord>();
 
             foreach (var chordEvents in staffGroup.GroupBy(e => (e.Voice, Start: Start(e))).OrderBy(g => g.Key.Start))
             {
@@ -170,21 +193,99 @@ internal static class NotePreparation
                 if (notes.Count == 0)
                     continue;
 
-                var low = notes.Min(n => n.Position);
-                var high = notes.Max(n => n.Position);
-                var stemUp = role != 0 ? role > 0 : (4 - low) > (high - 4);
-                result.Add(BuildChord(partIndex, staff, first.Voice, Start(first), value, stemUp, role, notes, first.OctaveShift));
+                pending.Add(new PendingChord
+                {
+                    First = first, Value = value, Role = role, Notes = notes,
+                    Beams = chordEvents.Select(e => e.Beams).FirstOrDefault(b => b is { Count: > 0 }) ?? new List<BeamType>(),
+                });
             }
+
+            var groups = BeamGroups(pending);
+            var built = new Dictionary<PendingChord, PreparedChord>();
+            foreach (var chord in pending)
+            {
+                var stemUp = chord.GroupStemUp ?? StemUp(chord.Role, chord.Notes.Select(n => n.Position).ToList());
+                built[chord] = BuildChord(partIndex, staff, chord.First.Voice, Start(chord.First), chord.Value, stemUp, chord.Role,
+                    chord.Notes, chord.First.OctaveShift, chord.Beams);
+                result.Add(built[chord]);
+            }
+
+            beams.AddRange(groups.Select(g => new PreparedBeam(g.Select(c => built[c]).ToList(), g[0].GroupStemUp!.Value)));
+        }
+    }
+
+    /// <summary>
+    /// One voice keeps one stem direction; otherwise the note furthest from the middle line decides (stems go down from it).
+    /// </summary>
+    private static bool StemUp(int role, IReadOnlyCollection<int> positions) =>
+        role != 0 ? role > 0 : (4 - positions.Min()) > (positions.Max() - 4);
+
+    /// <summary>
+    /// Joins chords into beam groups by their level-1 beams: a group runs from "begin" to "end" within one voice.
+    /// Broken groups (no end, a gap, a note too long for a beam) fall back to flags rather than guessing.
+    /// Sets each grouped chord's shared stem direction.
+    /// </summary>
+    private static List<List<PendingChord>> BeamGroups(List<PendingChord> chords)
+    {
+        var groups = new List<List<PendingChord>>();
+        foreach (var voice in chords.GroupBy(c => c.First.Voice))
+        {
+            List<PendingChord>? open = null;
+            foreach (var chord in voice.OrderBy(c => Start(c.First)))
+            {
+                BeamType? primary = chord.Beams.Count > 0 ? chord.Beams[0] : null;
+                if (primary == BeamType.Begin)
+                {
+                    Unbeam(open);
+                    open = new List<PendingChord> { chord };
+                }
+                else if (primary is BeamType.Continue or BeamType.End && open is not null)
+                {
+                    open.Add(chord);
+                    if (primary == BeamType.End)
+                    {
+                        groups.Add(open);
+                        open = null;
+                    }
+                }
+                else
+                {
+                    Unbeam(open);
+                    open = null;
+                    chord.Beams = Array.Empty<BeamType>();
+                }
+            }
+
+            Unbeam(open);
         }
 
-        return result;
+        groups.RemoveAll(g =>
+        {
+            if (g.Count >= 2 && g.All(c => c.Value.Type >= NoteType.Eighth)) return false;
+            Unbeam(g);
+            return true;
+        });
+
+        foreach (var group in groups)
+        {
+            var stemUp = StemUp(group[0].Role, group.SelectMany(c => c.Notes.Select(n => n.Position)).ToList());
+            foreach (var chord in group) chord.GroupStemUp = stemUp;
+        }
+
+        return groups;
+    }
+
+    private static void Unbeam(List<PendingChord>? group)
+    {
+        if (group is null) return;
+        foreach (var chord in group) chord.Beams = Array.Empty<BeamType>();
     }
 
     private static double DotsWidth(NoteValue value) => value.Dots == 0 ? 0 : 0.35 + value.Dots * 0.6;
 
     private static PreparedChord BuildChord(
         int partIndex, int staff, int voice, Rational start, NoteValue value, bool stemUp, int role,
-        List<(int Position, int? Accidental)> notes, int octaveShift)
+        List<(int Position, int? Accidental)> notes, int octaveShift, IReadOnlyList<BeamType> beams)
     {
         var sorted = notes.OrderBy(n => n.Position).ToList();
         var sides = new int[sorted.Count];
@@ -219,12 +320,12 @@ internal static class NotePreparation
         var displacedLeft = sides.Any(s => s < 0) ? headWidth : 0;
         var displacedRight = sides.Any(s => s > 0) ? headWidth : 0;
         var accidentalRoom = lastInColumn.Count == 0 ? 0 : lastInColumn.Count * AccidentalColumnWidth + AccidentalGap;
-        var flagRoom = stemUp && value.Type >= NoteType.Eighth ? 1.1 : 0;
+        var flagRoom = stemUp && value.Type >= NoteType.Eighth && beams.Count == 0 ? 1.1 : 0;
 
         return new PreparedChord
         {
             PartIndex = partIndex, Staff = staff, Voice = voice, Start = start, Value = value, IsRest = false,
-            StemUp = stemUp, VoiceRole = role, OctaveShift = octaveShift,
+            StemUp = stemUp, VoiceRole = role, OctaveShift = octaveShift, Beams = beams,
             Notes = sorted.Select((n, i) => new PreparedNote(n.Position, n.Accidental, sides[i], columns[i])).ToList(),
             LeftExtent = displacedLeft + accidentalRoom,
             RightExtent = headWidth + displacedRight + Math.Max(DotsWidth(value), flagRoom),
@@ -235,7 +336,7 @@ internal static class NotePreparation
     /// Horizontal spacing: every onset in the measure (across all parts) gets a column, and the gap to the next onset
     /// grows with the time between them, so simultaneous notes line up in every part.
     /// </summary>
-    private static PreparedMeasure Space(List<PreparedChord> chords, List<MidMeasureClef> midClefs, Rational length)
+    private static PreparedMeasure Space(List<PreparedChord> chords, List<PreparedBeam> beams, List<MidMeasureClef> midClefs, Rational length)
     {
         var onsets = chords.Where(c => !c.IsMeasureRest).Select(c => c.Start).Distinct().OrderBy(t => t).ToList();
         if (onsets.Count == 0 && chords.Count > 0)
@@ -261,7 +362,7 @@ internal static class NotePreparation
             segments[i] = Math.Max(gap, needed);
         }
 
-        return new PreparedMeasure { Chords = chords, MidMeasureClefs = clefsAtOnsets, Onsets = onsets, Pre = pre, Segments = segments };
+        return new PreparedMeasure { Chords = chords, Beams = beams, MidMeasureClefs = clefsAtOnsets, Onsets = onsets, Pre = pre, Segments = segments };
     }
 
     /// <summary>

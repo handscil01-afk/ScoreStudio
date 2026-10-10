@@ -10,6 +10,13 @@ public abstract record DrawItem;
 public sealed record LineItem(double X1, double Y1, double X2, double Y2, double Thickness) : DrawItem;
 
 /// <summary>
+/// A beam: a band with vertical ends from (<paramref name="X1"/>, <paramref name="Y1"/>) to (<paramref name="X2"/>,
+/// <paramref name="Y2"/>) along its top edge, <paramref name="Thickness"/> millimetres tall. Unlike a thick line, its ends
+/// stay vertical when it slopes, so they line up with the stems.
+/// </summary>
+public sealed record BeamItem(double X1, double Y1, double X2, double Y2, double Thickness) : DrawItem;
+
+/// <summary>
 /// A SMuFL glyph from the music font. (<paramref name="X"/>, <paramref name="Y"/>) is the glyph origin on its
 /// baseline; <paramref name="Size"/> is the font size (one em) in millimetres, which SMuFL defines as four staff spaces.
 /// </summary>
