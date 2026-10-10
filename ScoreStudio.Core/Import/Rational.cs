@@ -4,7 +4,7 @@ namespace ScoreStudio.Import;
 /// An exact fraction, always reduced and with a positive denominator. Used for musical time so that
 /// triplets and other tuplets stay exact (1/3 of a quarter note is not a floating-point approximation).
 /// </summary>
-public readonly record struct Rational
+public readonly record struct Rational : IComparable<Rational>
 {
     public Rational(long numerator, long denominator)
     {
@@ -30,6 +30,15 @@ public readonly record struct Rational
 
     public static bool operator <(Rational a, Rational b) => (a - b).Sign < 0;
     public static bool operator >(Rational a, Rational b) => (a - b).Sign > 0;
+
+    public static bool operator <=(Rational a, Rational b) => (a - b).Sign <= 0;
+    public static bool operator >=(Rational a, Rational b) => (a - b).Sign >= 0;
+
+    public static Rational Max(Rational a, Rational b) => a > b ? a : b;
+
+    public int CompareTo(Rational other) => (this - other).Sign;
+
+    public double ToDouble() => (double)Numerator / Denominator;
 
     public override string ToString() => Denominator == 1 ? $"{Numerator}" : $"{Numerator}/{Denominator}";
 

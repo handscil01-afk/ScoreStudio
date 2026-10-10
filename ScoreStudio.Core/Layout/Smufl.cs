@@ -8,12 +8,38 @@ namespace ScoreStudio.Layout;
 /// </summary>
 public static class Smufl
 {
-    public const char GClef = '';
-    public const char GClef8vb = '';
-    public const char CClef = '';
-    public const char FClef = '';
-    public const char Brace = '';
-    public const char TimeSig0 = '';
+    public const char GClef = '\uE050';
+    public const char GClef8vb = '\uE052';
+    public const char CClef = '\uE05C';
+    public const char FClef = '\uE062';
+    public const char Brace = '\uE000';
+    public const char TimeSig0 = '\uE080';
+
+    public const char NoteheadDoubleWhole = '\uE0A0';
+    public const char NoteheadWhole = '\uE0A2';
+    public const char NoteheadHalf = '\uE0A3';
+    public const char NoteheadBlack = '\uE0A4';
+    public const char AugmentationDot = '\uE1E7';
+
+    public const char AccidentalFlat = '\uE260';
+    public const char AccidentalNatural = '\uE261';
+    public const char AccidentalSharp = '\uE262';
+    public const char AccidentalDoubleSharp = '\uE263';
+    public const char AccidentalDoubleFlat = '\uE264';
+
+    /// <summary>Rests from breve (E4E2) to 64th (E4E9) are consecutive code points.</summary>
+    public const char RestDoubleWhole = '\uE4E2';
+
+    /// <summary>Flags for 8th to 64th notes: up flags at E240, E242, …; each down flag follows its up flag.</summary>
+    public const char Flag8thUp = '\uE240';
+
+    public const double StemThickness = 0.12;
+    public const double LegerLineThickness = 0.16;
+    public const double LegerLineExtension = 0.4;
+    public const double AugmentationDotWidth = 0.4;
+
+    /// <summary>Where stems attach to black and half noteheads (stemUpSE / stemDownNW), in staff spaces.</summary>
+    public const double StemAttachY = 0.168;
 
     public const double StaffLineThickness = 0.13;
     public const double ThinBarlineThickness = 0.16;
@@ -59,4 +85,69 @@ public static class Smufl
 
     public static double TimeSigWidth(int value) =>
         value.ToString(System.Globalization.CultureInfo.InvariantCulture).Sum(c => TimeSigDigitWidths[c - '0']);
+
+    public static char Notehead(NoteType type) => type switch
+    {
+        NoteType.Breve => NoteheadDoubleWhole,
+        NoteType.Whole => NoteheadWhole,
+        NoteType.Half => NoteheadHalf,
+        _ => NoteheadBlack,
+    };
+
+    public static double NoteheadWidth(NoteType type) => type switch
+    {
+        NoteType.Breve => 2.396,
+        NoteType.Whole => 1.688,
+        _ => 1.18,
+    };
+
+    public static char Rest(NoteType type) => (char)(RestDoubleWhole + (int)type);
+
+    public static double RestWidth(NoteType type) => type switch
+    {
+        NoteType.Breve => 0.504,
+        NoteType.Whole or NoteType.Half => 1.132,
+        NoteType.Quarter => 1.08,
+        NoteType.Eighth => 1.0,
+        NoteType.Sixteenth => 1.28,
+        NoteType.ThirtySecond => 1.452,
+        _ => 1.696,
+    };
+
+    /// <summary>Flag glyph for an 8th (one flag) to 64th (four flags) note, or null for longer notes.</summary>
+    public static char? Flag(NoteType type, bool stemUp) =>
+        type >= NoteType.Eighth ? (char)(Flag8thUp + 2 * (type - NoteType.Eighth) + (stemUp ? 0 : 1)) : null;
+
+    /// <summary>
+    /// Where the flag's stem anchor (stemUpNW / stemDownSW) sits relative to the flag origin, in staff spaces with y up.
+    /// </summary>
+    public static double FlagAnchorY(NoteType type, bool stemUp) => (type, stemUp) switch
+    {
+        (NoteType.Eighth, true) => -0.04,
+        (NoteType.Eighth, false) => 0.132,
+        (NoteType.Sixteenth, true) => -0.088,
+        (NoteType.Sixteenth, false) => 0.128,
+        (NoteType.ThirtySecond, true) => 0.376,
+        (NoteType.ThirtySecond, false) => -0.448,
+        (_, true) => 1.172,
+        (_, false) => -1.244,
+    };
+
+    public static char Accidental(int alter) => alter switch
+    {
+        -2 => AccidentalDoubleFlat,
+        -1 => AccidentalFlat,
+        1 => AccidentalSharp,
+        2 => AccidentalDoubleSharp,
+        _ => AccidentalNatural,
+    };
+
+    public static double AccidentalWidth(int alter) => alter switch
+    {
+        -2 => 1.652,
+        -1 => 0.904,
+        1 => 0.996,
+        2 => 1.0,
+        _ => 0.672,
+    };
 }

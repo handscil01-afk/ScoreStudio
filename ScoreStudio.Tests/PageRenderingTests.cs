@@ -48,22 +48,6 @@ public sealed class PageRenderingTests
         return (pixels, bitmap.PixelWidth, bitmap.PixelHeight, bitmap);
     }
 
-    /// <summary>Counts dark pixels inside a rectangle given in millimetres.</summary>
-    private static int DarkPixels(byte[] pixels, int width, int height, double x1, double y1, double x2, double y2)
-    {
-        var scale = Dpi / 25.4;
-        var count = 0;
-        for (var y = Math.Max(0, (int)(y1 * scale)); y < Math.Min(height, (int)(y2 * scale)); y++)
-        {
-            for (var x = Math.Max(0, (int)(x1 * scale)); x < Math.Min(width, (int)(x2 * scale)); x++)
-            {
-                if (pixels[(y * width + x) * 4] < 128) count++;
-            }
-        }
-
-        return count;
-    }
-
     private static string PreviewDirectory()
     {
         var directory = Environment.GetEnvironmentVariable("SCORESTUDIO_PREVIEW_DIR") ?? Path.Combine(AppContext.BaseDirectory, "preview");
@@ -79,31 +63,67 @@ public sealed class PageRenderingTests
         encoder.Save(stream);
     }
 
+    private static readonly char[] Clefs = { Smufl.GClef, Smufl.GClef8vb, Smufl.FClef, Smufl.CClef };
+    private static readonly char[] Noteheads = { Smufl.NoteheadDoubleWhole, Smufl.NoteheadWhole, Smufl.NoteheadHalf, Smufl.NoteheadBlack };
+
+    private static PageLayout Without(PageLayout page, Func<DrawItem, bool> remove)
+    {
+        var copy = new PageLayout { Number = page.Number, Width = page.Width, Height = page.Height };
+        copy.Items.AddRange(page.Items.Where(item => !remove(item)));
+        return copy;
+    }
+
+    /// <summary>Pixels inside a rectangle (in mm) that are dark in <paramref name="with"/> but light in <paramref name="without"/>.</summary>
+    private static int InkAdded(byte[] with, byte[] without, int width, int height, double x1, double y1, double x2, double y2)
+    {
+        var scale = Dpi / 25.4;
+        var count = 0;
+        for (var y = Math.Max(0, (int)(y1 * scale)); y < Math.Min(height, (int)(y2 * scale)); y++)
+        {
+            for (var x = Math.Max(0, (int)(x1 * scale)); x < Math.Min(width, (int)(x2 * scale)); x++)
+            {
+                var i = (y * width + x) * 4;
+                if (with[i] < 128 && without[i] >= 128) count++;
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// Renders the page with and without the given glyphs and checks that each glyph really puts ink where the layout
+    /// placed it. This catches a missing font, wrong baselines and glyphs drawn off position.
+    /// </summary>
+    private static void AssertGlyphsDrawn(PageLayout page, char[] glyphs, double left, double up, double right, double down, int minimumInk, string what)
+    {
+        var (with, width, height, _) = Render(page);
+        var (without, _, _, _) = Render(Without(page, item => item is GlyphItem g && glyphs.Contains(g.Glyph)));
+
+        var placed = page.Items.OfType<GlyphItem>().Where(g => glyphs.Contains(g.Glyph)).ToList();
+        Assert.NotEmpty(placed);
+        foreach (var glyph in placed)
+        {
+            var ink = InkAdded(with, without, width, height, glyph.X - left, glyph.Y - up, glyph.X + right, glyph.Y + down);
+            Assert.True(ink >= minimumInk, $"page {page.Number}: {what} at ({glyph.X:F1}, {glyph.Y:F1}) mm added only {ink} dark pixels");
+        }
+    }
+
     [Theory]
     [InlineData("simple-melody")]
     [InlineData("piano-grand-staff")]
     [InlineData("unsupported-features")]
     [InlineData("hymn-repeats-chords")]
-    public void ImportedMusicXml_RendersWithItsClefs(string sample)
+    public void ImportedMusicXml_DrawsClefsAndNoteheadsWhereTheLayoutPutsThem(string sample)
     {
         RunSta(() =>
         {
             var project = MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", sample + ".musicxml")).Project;
             var page = ScoreLayoutEngine.Layout(project).Pages[0];
-            var (pixels, width, height, bitmap) = Render(page);
 
-            // Same check as for the sample project: the clef area must hold far more ink than staff lines alone.
-            var system = page.Systems[0];
-            foreach (var staff in system.Staves)
-            {
-                var clefLeft = system.Left + 1.75;
-                var emptyLeft = system.Measures[^1].Left + 5;
-                var clefInk = DarkPixels(pixels, width, height, clefLeft, staff.Top - 3, clefLeft + 4.5, staff.Top + 10);
-                var emptyInk = DarkPixels(pixels, width, height, emptyLeft, staff.Top - 3, emptyLeft + 4.5, staff.Top + 10);
-                Assert.True(clefInk > emptyInk * 2, $"{sample}, staff {staff.StaffIndex + 1}: clef ink {clefInk}, empty staff ink {emptyInk}");
-            }
+            AssertGlyphsDrawn(page, Clefs, 0.5, 8, 5, 6, 100, "clef");
+            AssertGlyphsDrawn(page, Noteheads, 0.5, 1.2, 3, 1.2, 15, "notehead");
 
-            SavePng(bitmap, $"preview-musicxml-{sample}.png");
+            SavePng(Render(page).Bitmap, $"preview-musicxml-{sample}.png");
         });
     }
 
@@ -122,25 +142,10 @@ public sealed class PageRenderingTests
     {
         RunSta(() =>
         {
-            var layout = SampleLayout();
-
-            foreach (var page in layout.Pages)
+            foreach (var page in SampleLayout().Pages)
             {
-                var (pixels, width, height, bitmap) = Render(page);
-
-                // The clef area holds staff lines plus the clef glyph; an equally sized area in an empty
-                // measure holds only staff lines. Much more ink in the clef area means the glyph was drawn there.
-                foreach (var system in page.Systems)
-                {
-                    var staff = system.Staves[0];
-                    var clefLeft = system.Left + 1.75;
-                    var emptyLeft = system.Measures[^1].Left + 5;
-                    var clefInk = DarkPixels(pixels, width, height, clefLeft, staff.Top - 3, clefLeft + 4.5, staff.Top + 10);
-                    var emptyInk = DarkPixels(pixels, width, height, emptyLeft, staff.Top - 3, emptyLeft + 4.5, staff.Top + 10);
-                    Assert.True(clefInk > emptyInk * 2, $"page {page.Number}: clef ink {clefInk}, empty staff ink {emptyInk}");
-                }
-
-                SavePng(bitmap, $"preview-page-{page.Number}.png");
+                AssertGlyphsDrawn(page, Clefs, 0.5, 8, 5, 6, 100, "clef");
+                SavePng(Render(page).Bitmap, $"preview-page-{page.Number}.png");
             }
         });
     }

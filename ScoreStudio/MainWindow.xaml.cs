@@ -182,7 +182,7 @@ public partial class MainWindow : Window
         var measureCount = _project.Parts.Count == 0 ? 0 : _project.Parts.Max(p => p.Measures.Count);
         ScoreInfoText.Content = MusicFont.Typeface is null
             ? $"악보 기호 글꼴({MusicFont.FileName})을 불러오지 못해 기호를 표시할 수 없습니다."
-            : $"{layout.Pages.Count}쪽 · {measureCount}마디 · 음표 {_project.Parts.SelectMany(p => p.Measures).Sum(m => m.Events.Count(ev => ev.Kind == "Note"))}개(아직 화면에 표시하지 않음)";
+            : $"{layout.Pages.Count}쪽 · {measureCount}마디 · 음표 {_project.Parts.SelectMany(p => p.Measures).Sum(m => m.Events.Count(ev => ev.Kind == "Note"))}개";
     }
 
     private void SetZoom(double zoom)
@@ -290,7 +290,7 @@ public partial class MainWindow : Window
     private void About_Click(object sender, RoutedEventArgs e)
     {
         MessageBox.Show(this,
-            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·박자표·마디선, 여러 페이지, 확대/축소), MusicXML 가져오기(음표·쉼표·가사·조표 데이터)\n아직 지원하지 않음: 음표·조표 화면 표시, 음표 입력, MUSX 변환, PDF 출력",
+            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·조표·박자표·마디선·음표·쉼표, 여러 페이지, 확대/축소), MusicXML 가져오기\n저장되지만 아직 화면에 표시하지 않음: 가사, 코드 이름, 붙임줄, 도돌이표·볼타 (빔도 아직 그리지 않음)\n아직 지원하지 않음: 음표 입력, MUSX 변환, PDF 출력",
             "개발 상태", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
