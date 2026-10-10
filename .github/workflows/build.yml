@@ -59,4 +59,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "최신 개발 빌드 (${GITHUB_SHA::7})" \
-            --notes "main 브랜치의 최신 자동 빌드입니다. 아직 개발 중인 버전이며, 음표 표시·입력, MusicXML·MUSX 가져오기, PDF 출력은 구현되지 않았습니다. 실행하려면 .NET 8 Desktop Runtime이 필요합니다. preview-page-N.png는 샘플 악보를 이 빌드의 WPF 렌더러로 그린 화면입니다."
+            --notes "main 브랜치의 최신 자동 빌드입니다. 아직 개발 중인 버전입니다. MusicXML 가져오기는 지원하지만 가져온 음표·조표는 아직 화면에 그리지 않으며, 음표 입력, MUSX 변환, PDF 출력은 구현되지 않았습니다. 실행하려면 .NET 8 Desktop Runtime이 필요합니다. preview-*.png는 샘플 악보와 가져온 MusicXML 샘플을 이 빌드의 WPF 렌더러로 그린 화면입니다."
