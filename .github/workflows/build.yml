@@ -30,7 +30,7 @@ jobs:
       - name: Publish app
         run: dotnet publish ScoreStudio/ScoreStudio.csproj -c Release --no-restore -o publish
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: ScoreStudio-win-x64
           path: publish/
