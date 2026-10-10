@@ -6,7 +6,10 @@ namespace ScoreStudio.Models;
 /// </summary>
 public sealed class ScoreProject
 {
-    public int SchemaVersion { get; set; } = 1;
+    /// <summary>The project file schema version this build reads and writes.</summary>
+    public const int CurrentSchemaVersion = 1;
+
+    public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string Title { get; set; } = "새 악보";
     public string Composer { get; set; } = "";
     public string PageSize { get; set; } = "A4";

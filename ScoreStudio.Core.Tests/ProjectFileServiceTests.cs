@@ -1,0 +1,214 @@
+using System.Text.Json;
+using ScoreStudio.Models;
+using ScoreStudio.Services;
+
+namespace ScoreStudio.Core.Tests;
+
+public sealed class ProjectFileServiceTests : IDisposable
+{
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), "ScoreStudioTests", Guid.NewGuid().ToString("N"));
+
+    public ProjectFileServiceTests() => Directory.CreateDirectory(_dir);
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_dir, recursive: true); } catch (IOException) { }
+    }
+
+    private string PathFor(string name) => Path.Combine(_dir, name);
+
+    private static ScoreProject BuildRichProject()
+    {
+        var project = ScoreProject.CreateNew();
+        project.Title = "주 하나님 지으신 모든 세계 (테스트)";
+        project.Composer = "작곡가 이름";
+        project.PageSize = "Letter";
+        project.Orientation = "Landscape";
+        project.ImportedFrom = @"C:\악보\원본.musx";
+        project.Parts = new List<ScorePart>
+        {
+            new()
+            {
+                Id = "part-s", Name = "소프라노", Instrument = "Voice",
+                Measures =
+                {
+                    new()
+                    {
+                        Number = 1, Numerator = 6, Denominator = 8,
+                        Events =
+                        {
+                            new() { Kind = "Note", MidiPitch = 67, DurationNumerator = 3, DurationDenominator = 2, PositionNumerator = 0, PositionDenominator = 1, NotationSpelling = "G4", Lyric = "주" },
+                            new() { Kind = "Rest", MidiPitch = 60, DurationNumerator = 1, DurationDenominator = 2, PositionNumerator = 3, PositionDenominator = 2 },
+                            new() { Kind = "Note", MidiPitch = 70, DurationNumerator = 1, DurationDenominator = 3, PositionNumerator = 2, PositionDenominator = 1, NotationSpelling = "Bb4", Lyric = "하" },
+                        }
+                    },
+                    new() { Number = 2, Numerator = 6, Denominator = 8 },
+                }
+            },
+            new() { Id = "part-p", Name = "피아노", Instrument = "Piano" },
+            new() { Id = "part-v", Name = "바이올린", Instrument = "Violin" },
+        };
+        return project;
+    }
+
+    [Fact]
+    public void SaveThenLoad_PreservesTitlePartsAndScoreData()
+    {
+        var original = BuildRichProject();
+        var path = PathFor("rich.scoreproj");
+
+        ProjectFileService.Save(path, original);
+        var loaded = ProjectFileService.Load(path);
+
+        Assert.Equal(original.Title, loaded.Title);
+        Assert.Equal(original.Composer, loaded.Composer);
+        Assert.Equal(original.PageSize, loaded.PageSize);
+        Assert.Equal(original.Orientation, loaded.Orientation);
+        Assert.Equal(original.ImportedFrom, loaded.ImportedFrom);
+        Assert.Equal(original.CreatedUtc, loaded.CreatedUtc);
+        Assert.Equal(original.ModifiedUtc, loaded.ModifiedUtc);
+
+        // Compare the whole object graph, so a property added later is covered automatically.
+        Assert.Equal(JsonSerializer.Serialize(original), JsonSerializer.Serialize(loaded));
+
+        Assert.Equal(new[] { "소프라노", "피아노", "바이올린" }, loaded.Parts.Select(p => p.Name));
+        var e = loaded.Parts[0].Measures[0].Events[2];
+        Assert.Equal((70, 1, 3, 2, 1, "Bb4", "하"),
+            (e.MidiPitch, e.DurationNumerator, e.DurationDenominator, e.PositionNumerator, e.PositionDenominator, e.NotationSpelling, e.Lyric));
+    }
+
+    [Fact]
+    public void SaveThenLoad_NewProject_KeepsDefaultPart()
+    {
+        var path = PathFor("new.scoreproj");
+        ProjectFileService.Save(path, ScoreProject.CreateNew());
+
+        var loaded = ProjectFileService.Load(path);
+
+        Assert.Equal("새 악보", loaded.Title);
+        Assert.Single(loaded.Parts);
+        Assert.Equal("파트 1", loaded.Parts[0].Name);
+        Assert.Equal(ScoreProject.CurrentSchemaVersion, loaded.SchemaVersion);
+    }
+
+    [Fact]
+    public void Save_OverwritesExistingFile_AndLeavesNoTempFiles()
+    {
+        var path = PathFor("overwrite.scoreproj");
+        var project = ScoreProject.CreateNew();
+        ProjectFileService.Save(path, project);
+
+        project.Title = "두 번째 제목";
+        ProjectFileService.Save(path, project);
+
+        Assert.Equal("두 번째 제목", ProjectFileService.Load(path).Title);
+        Assert.Equal(new[] { path }, Directory.GetFiles(_dir));
+    }
+
+    [Fact]
+    public void Save_WritesUtf8WithoutBom_AndReadableKorean()
+    {
+        var path = PathFor("utf8.scoreproj");
+        ProjectFileService.Save(path, BuildRichProject());
+
+        var bytes = File.ReadAllBytes(path);
+        Assert.False(bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF);
+        Assert.Contains("\"SchemaVersion\": 1", File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void Load_SampleFile_ReadsAllParts()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "samples", "sample-choir.scoreproj");
+
+        var project = ProjectFileService.Load(path);
+
+        Assert.Equal("샘플 합창곡", project.Title);
+        Assert.Equal(new[] { "소프라노", "피아노" }, project.Parts.Select(p => p.Name));
+        Assert.Equal(4, project.Parts[0].Measures[0].Events.Count);
+        Assert.Equal("Rest", project.Parts[0].Measures[0].Events[3].Kind);
+        Assert.Equal((3, 4), (project.Parts[1].Measures[0].Numerator, project.Parts[1].Measures[0].Denominator));
+    }
+
+    [Fact]
+    public void Load_MissingNestedLists_AreFilledWithEmptyLists()
+    {
+        var project = ProjectFileService.Parse("""
+            { "SchemaVersion": 1, "Title": null, "Parts": [ { "Name": "A", "Measures": [ { "Number": 1, "Events": null } ] }, { "Name": "B", "Measures": null } ] }
+            """);
+
+        Assert.Equal("", project.Title);
+        Assert.Empty(project.Parts[0].Measures[0].Events);
+        Assert.Empty(project.Parts[1].Measures);
+        Assert.False(string.IsNullOrEmpty(project.Parts[1].Id));
+    }
+
+    [Fact]
+    public void Load_SchemaVersionIsCaseInsensitive()
+    {
+        var project = ProjectFileService.Parse("""{ "schemaVersion": 1, "title": "소문자 키" }""");
+        Assert.Equal("소문자 키", project.Title);
+    }
+
+    public static TheoryData<string, string> InvalidFiles => new()
+    {
+        { "", "비어 있습니다" },
+        { "   \n  ", "비어 있습니다" },
+        { "이건 JSON이 아닙니다", "손상되었거나 형식이 올바르지 않습니다" },
+        { """{ "SchemaVersion": 1, "Title": "끊긴 파일", "Parts": [ """, "손상되었거나 형식이 올바르지 않습니다" },
+        { "null", "프로젝트 파일이 아닙니다" },
+        { "[1, 2, 3]", "프로젝트 파일이 아닙니다" },
+        { """{ "Title": "버전 없음" }""", "버전 정보(SchemaVersion)가 없습니다" },
+        { """{ "SchemaVersion": "1" }""", "버전 정보(SchemaVersion)가 올바르지 않습니다" },
+        { """{ "SchemaVersion": 99 }""", "더 새로운 버전" },
+        { """{ "SchemaVersion": 0 }""", "지원하지 않는 프로젝트 버전" },
+        { """{ "SchemaVersion": 1, "Parts": "파트" }""", "손상되었거나 형식이 올바르지 않습니다" },
+        { """{ "SchemaVersion": 1, "Parts": [ null ] }""", "1번째 파트 데이터가 비어 있습니다" },
+        { """{ "SchemaVersion": 1, "Parts": [ { "Measures": [ { "Numerator": 4, "Denominator": 0 } ] } ] }""", "박자표(4/0)" },
+        { """{ "SchemaVersion": 1, "Parts": [ { "Measures": [ { "Events": [ { "DurationDenominator": 0 } ] } ] } ] }""", "음표/쉼표 길이" },
+        { """{ "SchemaVersion": 1, "Parts": [ { "Measures": [ { "Events": [ { "PositionNumerator": -1 } ] } ] } ] }""", "음표/쉼표 위치" },
+        { """{ "SchemaVersion": 1, "Parts": [ { "Measures": [ { "Events": [ { "MidiPitch": 200 } ] } ] } ] }""", "음높이(200)" },
+    };
+
+    [Theory]
+    [MemberData(nameof(InvalidFiles))]
+    public void Load_InvalidFile_ThrowsProjectFileExceptionWithKoreanMessage(string content, string expectedMessagePart)
+    {
+        var path = PathFor("invalid.scoreproj");
+        File.WriteAllText(path, content);
+
+        var ex = Assert.Throws<ProjectFileException>(() => ProjectFileService.Load(path));
+
+        Assert.Contains(expectedMessagePart, ex.Message);
+    }
+
+    [Fact]
+    public void Load_BinaryGarbage_ThrowsProjectFileException()
+    {
+        var path = PathFor("garbage.scoreproj");
+        File.WriteAllBytes(path, new byte[] { 0x50, 0x4B, 0x03, 0x04, 0x00, 0xFF, 0xFE, 0x10 });
+
+        Assert.Throws<ProjectFileException>(() => ProjectFileService.Load(path));
+    }
+
+    [Fact]
+    public void Load_MissingFile_ThrowsProjectFileException()
+    {
+        var ex = Assert.Throws<ProjectFileException>(() => ProjectFileService.Load(PathFor("없는 파일.scoreproj")));
+        Assert.Contains("파일을 찾을 수 없습니다", ex.Message);
+    }
+
+    [Fact]
+    public void Load_InvalidFile_DoesNotModifyIt()
+    {
+        var path = PathFor("keep.scoreproj");
+        const string content = "{ 손상된 내용";
+        File.WriteAllText(path, content);
+        var before = File.GetLastWriteTimeUtc(path);
+
+        Assert.Throws<ProjectFileException>(() => ProjectFileService.Load(path));
+
+        Assert.Equal(content, File.ReadAllText(path));
+        Assert.Equal(before, File.GetLastWriteTimeUtc(path));
+    }
+}

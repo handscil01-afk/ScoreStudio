@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- UI와 무관한 악보 데이터 모델과 파일 저장 코드. Windows가 아닌 환경에서도 빌드·테스트할 수 있다. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ScoreStudio</RootNamespace>
+  </PropertyGroup>
+</Project>

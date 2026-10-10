@@ -1,0 +1,37 @@
+name: Windows build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore ScoreStudio.sln
+
+      - name: Build (warnings are errors)
+        run: dotnet build ScoreStudio.sln -c Release --no-restore -warnaserror
+
+      - name: Test
+        run: dotnet test ScoreStudio.sln -c Release --no-build --logger "console;verbosity=normal"
+
+      - name: Publish app
+        run: dotnet publish ScoreStudio/ScoreStudio.csproj -c Release --no-restore -o publish
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScoreStudio-win-x64
+          path: publish/
+          if-no-files-found: error

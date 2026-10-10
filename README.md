@@ -18,14 +18,29 @@ Windows용 사보 프로그램의 첫 번째 개발 기반입니다. 목표는 `
 
 이 킷은 실행 가능한 출발점이지 완성된 사보 프로그램이 아닙니다. 먼저 빌드한 뒤 기능을 작은 단위로 구현하세요.
 
+## 프로젝트 구조
+| 폴더 | 내용 |
+|---|---|
+| `ScoreStudio/` | WPF 앱(화면). Windows에서만 빌드된다. |
+| `ScoreStudio.Core/` | 악보 데이터 모델과 `.scoreproj` 저장/열기. 화면 코드와 분리되어 있다. |
+| `ScoreStudio.Core.Tests/` | 저장/재열기, 잘못된 파일 처리 자동 테스트(xUnit). |
+| `samples/` | 테스트용 샘플 프로젝트 파일. |
+| `.github/workflows/build.yml` | GitHub Actions의 Windows 실행기에서 빌드·테스트하고 실행 파일을 올린다. |
+
 ## 실행
 필요: Windows 10/11, .NET 8 SDK, Visual Studio 2022 또는 `dotnet` CLI.
 
 ```powershell
-dotnet restore
-dotnet build
+dotnet restore ScoreStudio.sln
+dotnet build ScoreStudio.sln -warnaserror
+dotnet test ScoreStudio.sln
 dotnet run --project ScoreStudio
 ```
+
+Windows가 아닌 환경에서는 WPF 앱을 빌드할 수 없다. 이때는 `dotnet test ScoreStudio.Core.Tests`로 저장/열기 테스트만 실행한다.
+
+### 빌드된 앱 내려받기
+GitHub 저장소의 Actions 탭 → 최근 "Windows build" 실행 → Artifacts의 `ScoreStudio-win-x64`를 내려받아 압축을 풀고 `ScoreStudio.exe`를 실행한다. 이 파일을 실행하려면 PC에 [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)이 설치되어 있어야 한다.
 
 ## 첫 개발 목표
 1. 앱이 실행되고 기본 작업 화면이 표시되는지 확인

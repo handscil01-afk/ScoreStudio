@@ -1,0 +1,45 @@
+{
+  "SchemaVersion": 1,
+  "Title": "샘플 합창곡",
+  "Composer": "ScoreStudio 테스트",
+  "PageSize": "A4",
+  "Orientation": "Portrait",
+  "CreatedUtc": "2026-10-10T00:00:00Z",
+  "ModifiedUtc": "2026-10-10T00:00:00Z",
+  "ImportedFrom": null,
+  "Parts": [
+    {
+      "Id": "soprano",
+      "Name": "소프라노",
+      "Instrument": "Voice",
+      "Measures": [
+        {
+          "Number": 1,
+          "Numerator": 3,
+          "Denominator": 4,
+          "Events": [
+            { "Kind": "Note", "MidiPitch": 72, "DurationNumerator": 1, "DurationDenominator": 1, "PositionNumerator": 0, "PositionDenominator": 1, "NotationSpelling": "C5", "Lyric": "주" },
+            { "Kind": "Note", "MidiPitch": 74, "DurationNumerator": 1, "DurationDenominator": 2, "PositionNumerator": 1, "PositionDenominator": 1, "NotationSpelling": "D5", "Lyric": "님" },
+            { "Kind": "Note", "MidiPitch": 75, "DurationNumerator": 1, "DurationDenominator": 2, "PositionNumerator": 3, "PositionDenominator": 2, "NotationSpelling": "Eb5", "Lyric": null },
+            { "Kind": "Rest", "MidiPitch": 60, "DurationNumerator": 1, "DurationDenominator": 1, "PositionNumerator": 2, "PositionDenominator": 1, "NotationSpelling": null, "Lyric": null }
+          ]
+        }
+      ]
+    },
+    {
+      "Id": "piano",
+      "Name": "피아노",
+      "Instrument": "Piano",
+      "Measures": [
+        {
+          "Number": 1,
+          "Numerator": 3,
+          "Denominator": 4,
+          "Events": [
+            { "Kind": "Note", "MidiPitch": 48, "DurationNumerator": 3, "DurationDenominator": 1, "PositionNumerator": 0, "PositionDenominator": 1, "NotationSpelling": "C3", "Lyric": null }
+          ]
+        }
+      ]
+    }
+  ]
+}

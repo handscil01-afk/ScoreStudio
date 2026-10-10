@@ -7,4 +7,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>ScoreStudio</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ScoreStudio.Core\ScoreStudio.Core.csproj" />
+  </ItemGroup>
 </Project>

@@ -9,12 +9,13 @@ namespace ScoreStudio;
 public partial class MainWindow : Window
 {
     private ScoreProject _project = ScoreProject.CreateNew();
+    private bool _updatingUi;
 
     public MainWindow()
     {
         InitializeComponent();
         RenderStaffPlaceholder();
-        RefreshTitle();
+        ApplyProjectToUi();
     }
 
     private void RenderStaffPlaceholder()
@@ -53,8 +54,7 @@ public partial class MainWindow : Window
     private void NewScore_Click(object sender, RoutedEventArgs e)
     {
         _project = ScoreProject.CreateNew();
-        TitleInput.Text = _project.Title;
-        RefreshTitle();
+        ApplyProjectToUi();
         StatusText.Content = "새 악보를 만들었습니다.";
     }
 
@@ -71,14 +71,14 @@ public partial class MainWindow : Window
         try
         {
             _project = ProjectFileService.Load(dialog.FileName);
-            TitleInput.Text = _project.Title;
-            RefreshTitle();
+            ApplyProjectToUi();
             StatusText.Content = $"열기 완료: {System.IO.Path.GetFileName(dialog.FileName)}";
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"프로젝트를 열 수 없습니다.\n\n{ex.Message}", "열기 오류",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            // The current project stays open, so nothing is lost when a file fails to open.
+            ShowFileError("프로젝트를 열 수 없습니다.", "열기 오류", ex);
+            StatusText.Content = "열기 실패: 현재 악보는 그대로 유지됩니다.";
         }
     }
 
@@ -103,16 +103,65 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"프로젝트를 저장할 수 없습니다.\n\n{ex.Message}", "저장 오류",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            ShowFileError("프로젝트를 저장할 수 없습니다.", "저장 오류", ex);
+            StatusText.Content = "저장 실패";
         }
     }
 
     private void TitleInput_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (_project is null) return;
+        if (_project is null || _updatingUi) return;
         _project.Title = TitleInput.Text;
         RefreshTitle();
+    }
+
+    private void PageSizeInput_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_project is null || _updatingUi) return;
+        if (sender is not ComboBox { SelectedItem: ComboBoxItem { Tag: string tag } }) return;
+
+        var values = tag.Split('|');
+        _project.PageSize = values[0];
+        _project.Orientation = values[1];
+    }
+
+    /// <summary>Shows every value of the current project in the window.</summary>
+    private void ApplyProjectToUi()
+    {
+        _updatingUi = true;
+        try
+        {
+            TitleInput.Text = _project.Title;
+
+            // A page setting that is not in the list (e.g. from a newer file) is kept as is and shown as unselected.
+            var tag = $"{_project.PageSize}|{_project.Orientation}";
+            PageSizeInput.SelectedItem = PageSizeInput.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(item => string.Equals(item.Tag as string, tag, StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            _updatingUi = false;
+        }
+
+        RefreshTitle();
+        RefreshParts();
+    }
+
+    private void RefreshParts()
+    {
+        SidebarParts.Text = _project.Parts.Count == 0
+            ? "파트 없음"
+            : string.Join("\n", _project.Parts.Select((part, index) =>
+                $"{index + 1}. {(string.IsNullOrWhiteSpace(part.Name) ? "(이름 없음)" : part.Name)} · {part.Measures.Count}마디"));
+    }
+
+    private void ShowFileError(string headline, string caption, Exception ex)
+    {
+        var detail = ex is ProjectFileException
+            ? ex.Message
+            : $"예상하지 못한 오류가 발생했습니다.\n\n{ex.GetType().Name}: {ex.Message}";
+        MessageBox.Show(this, $"{headline}\n\n{detail}", caption, MessageBoxButton.OK, MessageBoxImage.Error);
     }
 
     private void RefreshTitle()

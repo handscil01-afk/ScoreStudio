@@ -51,7 +51,7 @@
                     <TextBlock Text="제목" FontWeight="SemiBold"/>
                     <TextBlock x:Name="SidebarTitle" Text="새 악보" TextWrapping="Wrap" Margin="0,4,0,12"/>
                     <TextBlock Text="파트" FontWeight="SemiBold"/>
-                    <TextBlock Text="기본 파트 1개" Margin="0,4,0,12"/>
+                    <TextBlock x:Name="SidebarParts" Text="파트 1" TextWrapping="Wrap" Margin="0,4,0,12"/>
                     <TextBlock Text="가져오기 상태" FontWeight="SemiBold"/>
                     <TextBlock Text="MusicXML / MUSX 미구현" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="#805A20"/>
                 </StackPanel>
@@ -76,10 +76,11 @@
                     <TextBlock Text="문서 제목"/>
                     <TextBox x:Name="TitleInput" Text="새 악보" Margin="0,4,0,12" TextChanged="TitleInput_TextChanged"/>
                     <TextBlock Text="페이지 크기"/>
-                    <ComboBox SelectedIndex="0" Margin="0,4,0,12">
-                        <ComboBoxItem Content="A4 세로"/>
-                        <ComboBoxItem Content="A4 가로"/>
-                        <ComboBoxItem Content="Letter"/>
+                    <ComboBox x:Name="PageSizeInput" SelectedIndex="0" Margin="0,4,0,12" SelectionChanged="PageSizeInput_SelectionChanged">
+                        <ComboBoxItem Content="A4 세로" Tag="A4|Portrait"/>
+                        <ComboBoxItem Content="A4 가로" Tag="A4|Landscape"/>
+                        <ComboBoxItem Content="Letter 세로" Tag="Letter|Portrait"/>
+                        <ComboBoxItem Content="Letter 가로" Tag="Letter|Landscape"/>
                     </ComboBox>
                     <TextBlock Text="개발 메모" FontWeight="SemiBold"/>
                     <TextBlock TextWrapping="Wrap" Foreground="#697586" Margin="0,4,0,0"
