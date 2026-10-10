@@ -1,0 +1,9 @@
+<Application x:Class="ScoreStudio.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <SolidColorBrush x:Key="AccentBrush" Color="#315D8A"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#F4F6F8"/>
+    </Application.Resources>
+</Application>
