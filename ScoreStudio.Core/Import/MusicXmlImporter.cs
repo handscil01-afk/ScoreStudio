@@ -248,7 +248,6 @@ public static class MusicXmlImporter
             ["metronome"] = "메트로놈 빠르기 표시",
             ["wedge"] = "크레셴도·디크레셴도",
             ["pedal"] = "페달",
-            ["octave-shift"] = "옥타브 기호(8va 등)",
             ["rehearsal"] = "리허설 마크",
             ["segno"] = "세뇨·코다",
             ["coda"] = "세뇨·코다",
@@ -257,13 +256,18 @@ public static class MusicXmlImporter
             ["other-direction"] = "기타 지시 기호",
         };
 
-        private static readonly HashSet<string> IgnoredMeasureChildren = new() { "print", "sound", "listening", "bookmark", "link", "grouping" };
+        private static readonly HashSet<string> IgnoredMeasureChildren = new() { "sound", "listening", "bookmark", "link", "grouping" };
 
         private readonly string _name;
         private readonly string _label;
         private readonly string _instrument;
         private readonly ImportWarningCollector _warnings;
         private readonly Dictionary<int, ClefType> _clefs = new();
+        private readonly Dictionary<int, ClefType> _currentClefs = new();
+        private readonly HashSet<int> _hiddenStaves = new();
+
+        /// <summary>Octave-line starts and stops per staff, applied to notes by time once the part is read.</summary>
+        private readonly List<(int Staff, int Measure, Rational Time, int Shift)> _octaveChanges = new();
 
         private long _divisions;
         private int _numerator = 4;
@@ -299,6 +303,10 @@ public static class MusicXmlImporter
                 _openVolta.OpenEnd = true;
             }
 
+            ApplyOctaveShifts(measures);
+            foreach (var measure in measures)
+                measure.HiddenStaves.RemoveAll(s => s >= _staves);
+
             var staves = Enumerable.Range(1, _staves)
                 .Select(n => new ScoreStaff { Clef = _clefs.TryGetValue(n, out var clef) ? clef : n == 2 ? ClefType.Bass : ClefType.Treble })
                 .ToList();
@@ -328,7 +336,14 @@ public static class MusicXmlImporter
                 switch (child.Name.LocalName)
                 {
                     case "attributes":
-                        ReadAttributes(child, measure);
+                        ReadAttributes(child, measure, cursor);
+                        break;
+                    case "print":
+                        // Line and page breaks chosen in the source program (e.g. Finale's layout).
+                        if (index > 0 && ((string?)child.Attribute("new-system") == "yes" || (string?)child.Attribute("new-page") == "yes"))
+                            measure.SystemBreak = true;
+                        if (index > 0 && (string?)child.Attribute("new-page") == "yes")
+                            measure.PageBreak = true;
                         break;
                     case "note":
                         ReadNote(child, measure, ref cursor, ref lastStart);
@@ -347,7 +362,10 @@ public static class MusicXmlImporter
                         if (cursor > end) end = cursor;
                         break;
                     case "direction":
-                        foreach (var type in child.Elements("direction-type").SelectMany(d => d.Elements()).Where(IsStartOrSingle))
+                        foreach (var shift in child.Elements("direction-type").SelectMany(d => d.Elements("octave-shift")))
+                            ReadOctaveShift(shift, child, index, cursor);
+                        foreach (var type in child.Elements("direction-type").SelectMany(d => d.Elements())
+                                     .Where(e => e.Name != "octave-shift").Where(IsStartOrSingle))
                             Warn(DirectionNames.TryGetValue(type.Name.LocalName, out var label) ? label : $"지시 기호 <{type.Name.LocalName}>");
                         break;
                     case "barline":
@@ -369,10 +387,11 @@ public static class MusicXmlImporter
             if (end > new Rational(4L * measure.Numerator, measure.Denominator))
                 Warn("박자표보다 긴 마디가 있음 (그대로 가져옴)");
 
+            measure.HiddenStaves.AddRange(_hiddenStaves.OrderBy(s => s));
             return measure;
         }
 
-        private void ReadAttributes(XElement attributes, ScoreMeasure measure)
+        private void ReadAttributes(XElement attributes, ScoreMeasure measure, Rational cursor)
         {
             if (attributes.Element("divisions") is { } divisionsElement)
             {
@@ -410,7 +429,22 @@ public static class MusicXmlImporter
             }
 
             foreach (var clef in attributes.Elements("clef"))
-                ReadClef(clef);
+                ReadClef(clef, measure, cursor);
+
+            // Hidden staves (Finale's "hide empty staves"): print-object="no" hides from here on, "yes" shows again.
+            foreach (var details in attributes.Elements("staff-details"))
+            {
+                var printObject = (string?)details.Attribute("print-object");
+                if (printObject is not ("yes" or "no")) continue;
+                var targets = int.TryParse((string?)details.Attribute("number"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var number)
+                    ? new[] { number - 1 }
+                    : Enumerable.Range(0, 4).ToArray();
+                foreach (var staff in targets.Where(t => t >= 0))
+                {
+                    if (printObject == "no") _hiddenStaves.Add(staff);
+                    else _hiddenStaves.Remove(staff);
+                }
+            }
 
             if (attributes.Element("transpose") is not null)
                 Warn("이조 악기 설정(transpose)은 가져오지 않음 (기보된 음높이로 가져옴)");
@@ -464,7 +498,7 @@ public static class MusicXmlImporter
             _denominator = measure.Denominator = denominator;
         }
 
-        private void ReadClef(XElement clef)
+        private void ReadClef(XElement clef, ScoreMeasure measure, Rational cursor)
         {
             var staff = 1;
             if (clef.Attribute("number") is { } numberAttribute
@@ -496,14 +530,67 @@ public static class MusicXmlImporter
                 type = sign switch { "F" => ClefType.Bass, "C" => ClefType.Alto, _ => ClefType.Treble };
             }
 
-            if (_clefs.TryGetValue(staff, out var existing))
+            if (!_clefs.ContainsKey(staff))
             {
-                if (existing != type) Warn("중간 음자리표 변경은 가져오지 않음 (처음 음자리표를 유지)");
+                // The first clef of a staff is its starting clef, wherever it appears.
+                _clefs[staff] = type.Value;
+                _currentClefs[staff] = type.Value;
+                _staves = Math.Max(_staves, staff);
                 return;
             }
 
-            _clefs[staff] = type.Value;
-            _staves = Math.Max(_staves, staff);
+            if (_currentClefs[staff] == type.Value)
+                return;
+
+            _currentClefs[staff] = type.Value;
+            var change = new ScoreClefChange { Staff = staff - 1, Clef = type.Value };
+            if (TrySetFraction(cursor, (n, d) => (change.PositionNumerator, change.PositionDenominator) = (n, d)))
+                measure.ClefChanges.Add(change);
+        }
+
+        /// <summary>
+        /// An 8va line (type "down": notes are written an octave lower than they sound), 8vb ("up"), 15ma/15mb (size 15),
+        /// or the end of one ("stop"). It applies by time to every voice on its staff.
+        /// </summary>
+        private void ReadOctaveShift(XElement shift, XElement direction, int measureIndex, Rational cursor)
+        {
+            var type = (string?)shift.Attribute("type");
+            if (type == "continue") return;
+
+            var staff = int.TryParse(direction.Element("staff")?.Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n - 1 : 0;
+            var size = int.TryParse((string?)shift.Attribute("size"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var s) ? s : 8;
+            var octaves = size >= 15 ? 2 : 1;
+            if (size > 15) Warn("22ma 이상의 옥타브 기호는 15ma로 가져옴");
+
+            var value = type switch { "down" => octaves, "up" => -octaves, _ => 0 };
+            _octaveChanges.Add((staff, measureIndex, cursor, value));
+        }
+
+        private void ApplyOctaveShifts(List<ScoreMeasure> measures)
+        {
+            if (_octaveChanges.Count == 0) return;
+
+            // Directions after a <backup> lie earlier in time than their place in the file, so order by time.
+            var changes = _octaveChanges.Select((c, i) => (Change: c, Order: i))
+                .OrderBy(x => x.Change.Measure).ThenBy(x => x.Change.Time).ThenBy(x => x.Order)
+                .Select(x => x.Change).ToList();
+
+            for (var m = 0; m < measures.Count; m++)
+            {
+                foreach (var item in measures[m].Events)
+                {
+                    var start = new Rational(item.PositionNumerator, item.PositionDenominator);
+                    var shift = 0;
+                    foreach (var change in changes)
+                    {
+                        if (change.Staff != item.Staff) continue;
+                        if (change.Measure > m || (change.Measure == m && change.Time > start)) break;
+                        shift = change.Shift;
+                    }
+
+                    item.OctaveShift = shift;
+                }
+            }
         }
 
         private static int? DefaultLine(string? sign) => sign switch { "G" => 2, "F" => 4, "C" => 3, _ => null };

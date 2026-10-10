@@ -33,6 +33,14 @@ public static class Smufl
     /// <summary>Flags for 8th to 64th notes: up flags at E240, E242, …; each down flag follows its up flag.</summary>
     public const char Flag8thUp = '\uE240';
 
+    public const char OttavaAlta = '\uE511';        // 8va
+    public const char OttavaBassa = '\uE512';       // 8vb
+    public const char QuindicesimaAlta = '\uE515';  // 15ma
+    public const char QuindicesimaBassa = '\uE516'; // 15mb
+
+    /// <summary>Clef changes inside a system are drawn smaller than the clefs at the start of a system.</summary>
+    public const double ClefChangeScale = 0.75;
+
     public const double StemThickness = 0.12;
     public const double LegerLineThickness = 0.16;
     public const double LegerLineExtension = 0.4;
@@ -149,5 +157,22 @@ public static class Smufl
         1 => 0.996,
         2 => 1.0,
         _ => 0.672,
+    };
+
+    /// <summary>Octave-line label for a shift of 1 (8va), 2 (15ma), −1 (8vb) or −2 (15mb).</summary>
+    public static char OctaveLineLabel(int shift) => shift switch
+    {
+        >= 2 => QuindicesimaAlta,
+        1 => OttavaAlta,
+        -1 => OttavaBassa,
+        _ => QuindicesimaBassa,
+    };
+
+    public static double OctaveLineLabelWidth(int shift) => shift switch
+    {
+        >= 2 => 5.26,
+        1 => 3.54,
+        -1 => 3.356,
+        _ => 5.14,
     };
 }

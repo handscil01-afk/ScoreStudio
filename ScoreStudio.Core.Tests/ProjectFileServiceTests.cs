@@ -183,6 +183,46 @@ public sealed class ProjectFileServiceTests : IDisposable
     }
 
     [Fact]
+    public void Load_Version4File_HasNoClefChangesHiddenStavesBreaksOrOctaveLines()
+    {
+        var project = ProjectFileService.Parse("""
+            { "SchemaVersion": 4, "Parts": [ { "Measures": [ { "Events": [ { "Kind": "Note", "MidiPitch": 72 } ] } ] } ] }
+            """);
+
+        var measure = project.Parts[0].Measures[0];
+        Assert.Empty(measure.ClefChanges);
+        Assert.Empty(measure.HiddenStaves);
+        Assert.False(measure.SystemBreak);
+        Assert.False(measure.PageBreak);
+        Assert.Equal(0, measure.Events[0].OctaveShift);
+    }
+
+    [Fact]
+    public void SaveThenLoad_PreservesClefChangesHiddenStavesBreaksAndOctaveLines()
+    {
+        var project = ScoreProject.CreateNew();
+        project.Parts[0].Staves = new List<ScoreStaff> { new() { Clef = ClefType.Treble }, new() { Clef = ClefType.Bass } };
+        var measure = project.Parts[0].Measures[1];
+        measure.ClefChanges.Add(new ScoreClefChange { Staff = 1, PositionNumerator = 3, PositionDenominator = 2, Clef = ClefType.Treble });
+        measure.HiddenStaves.Add(0);
+        measure.SystemBreak = true;
+        measure.PageBreak = true;
+        measure.Events.Add(new ScoreEvent { Kind = "Note", MidiPitch = 84, NotationSpelling = "C6", OctaveShift = 1 });
+        measure.Events.Add(new ScoreEvent { Kind = "Note", MidiPitch = 31, NotationSpelling = "G1", OctaveShift = -2, Staff = 1 });
+        var path = PathFor("layout.scoreproj");
+
+        ProjectFileService.Save(path, project);
+        var loaded = ProjectFileService.Load(path).Parts[0].Measures[1];
+
+        var change = Assert.Single(loaded.ClefChanges);
+        Assert.Equal((1, 3, 2, ClefType.Treble), (change.Staff, change.PositionNumerator, change.PositionDenominator, change.Clef));
+        Assert.Equal(new[] { 0 }, loaded.HiddenStaves);
+        Assert.True(loaded.SystemBreak && loaded.PageBreak);
+        Assert.Equal(new[] { 1, -2 }, loaded.Events.Select(e => e.OctaveShift));
+        Assert.False(ProjectFileService.Load(path).Parts[0].Measures[0].SystemBreak);
+    }
+
+    [Fact]
     public void SaveThenLoad_PreservesStavesAndClefs()
     {
         var project = ScoreProject.CreateNew();
@@ -262,6 +302,11 @@ public sealed class ProjectFileServiceTests : IDisposable
         { """{ "SchemaVersion": 4, "Parts": [ { "Measures": [ { "ChordSymbols": [ null ] } ] } ] }""", "1번째 코드 이름 데이터가 비어 있습니다" },
         { """{ "SchemaVersion": 4, "Parts": [ { "Measures": [ { "Events": [ { "Lyrics": [ { "Verse": 0, "Text": "가" } ] } ] } ] } ] }""", "가사 정보" },
         { """{ "SchemaVersion": 4, "Parts": [ { "Measures": [ { "Events": [ { "Lyrics": [ { "Syllabic": "Hyphen" } ] } ] } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
+        { """{ "SchemaVersion": 5, "Parts": [ { "Measures": [ { "ClefChanges": [ { "Staff": 1, "Clef": "Bass" } ] } ] } ] }""", "음자리표 변경" },
+        { """{ "SchemaVersion": 5, "Parts": [ { "Measures": [ { "ClefChanges": [ { "PositionDenominator": 0 } ] } ] } ] }""", "음자리표 변경" },
+        { """{ "SchemaVersion": 5, "Parts": [ { "Measures": [ { "ClefChanges": [ null ] } ] } ] }""", "음자리표 변경" },
+        { """{ "SchemaVersion": 5, "Parts": [ { "Measures": [ { "HiddenStaves": [ 1 ] } ] } ] }""", "숨긴 보표" },
+        { """{ "SchemaVersion": 5, "Parts": [ { "Measures": [ { "Events": [ { "OctaveShift": 3 } ] } ] } ] }""", "옥타브 기호 값(3)" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": "Percussion" } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": 7 } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
     };

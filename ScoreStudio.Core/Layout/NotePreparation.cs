@@ -30,6 +30,9 @@ internal sealed class PreparedChord
 
     public IReadOnlyList<PreparedNote> Notes { get; init; } = Array.Empty<PreparedNote>();
 
+    /// <summary>Octave line the chord is under: 1 = 8va, 2 = 15ma, −1 = 8vb, −2 = 15mb.</summary>
+    public int OctaveShift { get; init; }
+
     /// <summary>Room needed left of the onset for accidentals and left-displaced heads, in staff spaces.</summary>
     public double LeftExtent { get; init; }
 
@@ -37,10 +40,15 @@ internal sealed class PreparedChord
     public double RightExtent { get; init; }
 }
 
+/// <summary>A clef change in the middle of a measure, drawn just before the notes at <see cref="Onset"/>.</summary>
+internal sealed record MidMeasureClef(int PartIndex, int Staff, Rational Onset, ClefType Clef);
+
 /// <summary>Everything about one measure (across all parts) that does not depend on where the measure lands.</summary>
 internal sealed class PreparedMeasure
 {
     public required List<PreparedChord> Chords { get; init; }
+
+    public IReadOnlyList<MidMeasureClef> MidMeasureClefs { get; init; } = Array.Empty<MidMeasureClef>();
     public required List<Rational> Onsets { get; init; }
 
     /// <summary>Room before each onset for accidentals, in staff spaces.</summary>
@@ -61,11 +69,15 @@ internal static class NotePreparation
     public const double AccidentalColumnWidth = 1.1;
     public const double AccidentalGap = 0.25;
 
-    public static PreparedMeasure[] Prepare(ScoreProject project, int measureCount)
+    /// <summary>Room for a clef change before a note in mid-measure, in staff spaces.</summary>
+    public const double ClefChangeWidth = 2.6;
+
+    public static PreparedMeasure[] Prepare(ScoreProject project, int measureCount, ClefTimeline clefs)
     {
         var measures = new PreparedMeasure[measureCount];
         var tiedFromPrevious = new HashSet<(int Part, int Staff, int Voice, int Midi)>();
         var chordsByMeasure = Enumerable.Range(0, measureCount).Select(_ => new List<PreparedChord>()).ToArray();
+        var midClefs = Enumerable.Range(0, measureCount).Select(_ => new List<MidMeasureClef>()).ToArray();
         var lengths = new Rational[measureCount];
 
         for (var p = 0; p < project.Parts.Count; p++)
@@ -79,12 +91,14 @@ internal static class NotePreparation
                 foreach (var e in measure.Events)
                     lengths[m] = Rational.Max(lengths[m], Start(e) + Duration(e));
 
-                chordsByMeasure[m].AddRange(PrepareMeasurePart(part, p, measure, nominal, tiedFromPrevious));
+                chordsByMeasure[m].AddRange(PrepareMeasurePart(part, p, m, measure, nominal, tiedFromPrevious, clefs));
+                foreach (var change in measure.ClefChanges.Where(c => c.PositionNumerator > 0))
+                    midClefs[m].Add(new MidMeasureClef(p, change.Staff, new Rational(change.PositionNumerator, change.PositionDenominator), change.Clef));
             }
         }
 
         for (var m = 0; m < measureCount; m++)
-            measures[m] = Space(chordsByMeasure[m], lengths[m] == default ? new Rational(4, 1) : lengths[m]);
+            measures[m] = Space(chordsByMeasure[m], midClefs[m], lengths[m] == default ? new Rational(4, 1) : lengths[m]);
         return measures;
     }
 
@@ -92,8 +106,8 @@ internal static class NotePreparation
     private static Rational Duration(ScoreEvent e) => new(e.DurationNumerator, e.DurationDenominator);
 
     private static IEnumerable<PreparedChord> PrepareMeasurePart(
-        ScorePart part, int partIndex, ScoreMeasure measure, Rational nominal,
-        HashSet<(int Part, int Staff, int Voice, int Midi)> tiedFromPrevious)
+        ScorePart part, int partIndex, int measureIndex, ScoreMeasure measure, Rational nominal,
+        HashSet<(int Part, int Staff, int Voice, int Midi)> tiedFromPrevious, ClefTimeline clefs)
     {
         var result = new List<PreparedChord>();
         var events = measure.Events.Select((e, i) => (Event: e, Order: i)).OrderBy(x => Start(x.Event)).ThenBy(x => x.Order).Select(x => x.Event);
@@ -101,7 +115,6 @@ internal static class NotePreparation
         foreach (var staffGroup in events.GroupBy(e => e.Staff))
         {
             var staff = staffGroup.Key;
-            var clef = part.Staves[Math.Clamp(staff, 0, part.Staves.Count - 1)].Clef;
             var voices = staffGroup.Select(e => e.Voice).Distinct().OrderBy(v => v).ToList();
             var multiVoice = voices.Count > 1;
 
@@ -112,6 +125,7 @@ internal static class NotePreparation
             {
                 var first = chordEvents.First();
                 var duration = Duration(first);
+                var clef = clefs.ClefAt(partIndex, staff, measureIndex, Start(first));
                 var value = Notation.ValueOf(duration);
                 var role = multiVoice ? (first.Voice == voices[0] ? 1 : -1) : 0;
 
@@ -121,7 +135,7 @@ internal static class NotePreparation
                     result.Add(new PreparedChord
                     {
                         PartIndex = partIndex, Staff = staff, Voice = first.Voice, Start = Start(first), Value = value,
-                        IsRest = true, IsMeasureRest = isMeasureRest, VoiceRole = role,
+                        IsRest = true, IsMeasureRest = isMeasureRest, VoiceRole = role, OctaveShift = first.OctaveShift,
                         RightExtent = isMeasureRest ? 0 : Smufl.RestWidth(value.Type) + DotsWidth(value),
                     });
                     continue;
@@ -130,7 +144,9 @@ internal static class NotePreparation
                 var notes = new List<(int Position, int? Accidental)>();
                 foreach (var note in chordEvents.Where(e => e.Kind == "Note").OrderBy(e => e.MidiPitch))
                 {
+                    // Under an octave line the note is written one or two octaves away from its sounding pitch.
                     var pitch = Notation.Spell(note, measure.KeyFifths);
+                    pitch = pitch with { Octave = pitch.Octave - note.OctaveShift };
                     var position = Notation.StaffPosition(pitch, clef);
                     var current = inForce.TryGetValue(pitch.Diatonic, out var known) ? known : Notation.KeyAlter(measure.KeyFifths, pitch.Step);
                     var tieKey = (partIndex, staff, note.Voice, note.MidiPitch);
@@ -157,7 +173,7 @@ internal static class NotePreparation
                 var low = notes.Min(n => n.Position);
                 var high = notes.Max(n => n.Position);
                 var stemUp = role != 0 ? role > 0 : (4 - low) > (high - 4);
-                result.Add(BuildChord(partIndex, staff, first.Voice, Start(first), value, stemUp, role, notes));
+                result.Add(BuildChord(partIndex, staff, first.Voice, Start(first), value, stemUp, role, notes, first.OctaveShift));
             }
         }
 
@@ -168,7 +184,7 @@ internal static class NotePreparation
 
     private static PreparedChord BuildChord(
         int partIndex, int staff, int voice, Rational start, NoteValue value, bool stemUp, int role,
-        List<(int Position, int? Accidental)> notes)
+        List<(int Position, int? Accidental)> notes, int octaveShift)
     {
         var sorted = notes.OrderBy(n => n.Position).ToList();
         var sides = new int[sorted.Count];
@@ -208,7 +224,7 @@ internal static class NotePreparation
         return new PreparedChord
         {
             PartIndex = partIndex, Staff = staff, Voice = voice, Start = start, Value = value, IsRest = false,
-            StemUp = stemUp, VoiceRole = role,
+            StemUp = stemUp, VoiceRole = role, OctaveShift = octaveShift,
             Notes = sorted.Select((n, i) => new PreparedNote(n.Position, n.Accidental, sides[i], columns[i])).ToList(),
             LeftExtent = displacedLeft + accidentalRoom,
             RightExtent = headWidth + displacedRight + Math.Max(DotsWidth(value), flagRoom),
@@ -219,11 +235,17 @@ internal static class NotePreparation
     /// Horizontal spacing: every onset in the measure (across all parts) gets a column, and the gap to the next onset
     /// grows with the time between them, so simultaneous notes line up in every part.
     /// </summary>
-    private static PreparedMeasure Space(List<PreparedChord> chords, Rational length)
+    private static PreparedMeasure Space(List<PreparedChord> chords, List<MidMeasureClef> midClefs, Rational length)
     {
         var onsets = chords.Where(c => !c.IsMeasureRest).Select(c => c.Start).Distinct().OrderBy(t => t).ToList();
         if (onsets.Count == 0 && chords.Count > 0)
             onsets.Add(Rational.Zero); // only whole-measure rests: one column
+
+        // A mid-measure clef is drawn before the first onset at or after its position.
+        var clefsAtOnsets = midClefs
+            .Select(c => c with { Onset = onsets.FirstOrDefault(t => t >= c.Onset, c.Onset) })
+            .Where(c => onsets.Contains(c.Onset))
+            .ToList();
 
         var pre = new double[onsets.Count];
         var segments = new double[onsets.Count];
@@ -231,15 +253,80 @@ internal static class NotePreparation
         {
             var atOnset = chords.Where(c => c.Start == onsets[i] && !c.IsMeasureRest).ToList();
             pre[i] = atOnset.Select(c => c.LeftExtent).DefaultIfEmpty(0).Max();
+            if (clefsAtOnsets.Any(c => c.Onset == onsets[i]))
+                pre[i] += ClefChangeWidth;
             var next = i + 1 < onsets.Count ? onsets[i + 1] : length;
             var gap = SpaceFor(next - onsets[i]);
-            var needed = atOnset.Select(c => c.RightExtent + 0.5).DefaultIfEmpty(0).Max();
+            var needed = atOnset.Select(c => c.RightExtent + 0.3).DefaultIfEmpty(0).Max();
             segments[i] = Math.Max(gap, needed);
         }
 
-        return new PreparedMeasure { Chords = chords, Onsets = onsets, Pre = pre, Segments = segments };
+        return new PreparedMeasure { Chords = chords, MidMeasureClefs = clefsAtOnsets, Onsets = onsets, Pre = pre, Segments = segments };
     }
 
-    /// <summary>Space after a note, in staff spaces: about 4 for an 8th, 5 for a quarter, 6.4 for a half, 7.9 for a whole.</summary>
-    public static double SpaceFor(Rational duration) => 2.2 + 1.8 * Math.Log2(1 + 2 * Math.Max(duration.ToDouble(), 0));
+    /// <summary>
+    /// Space after a note, in staff spaces: about 2.5 for a 16th, 3.2 for an 8th, 4.1 for a quarter, 5.3 for a half and
+    /// 6.7 for a whole, close to common engraving practice (and to Finale's default spacing).
+    /// </summary>
+    public static double SpaceFor(Rational duration) => 1.6 + 1.6 * Math.Log2(1 + 2 * Math.Max(duration.ToDouble(), 0));
+}
+
+/// <summary>Which clef is in force on each staff at any point of the piece.</summary>
+internal sealed class ClefTimeline
+{
+    private readonly Dictionary<(int Part, int Staff), List<(int Measure, Rational Position, ClefType Clef)>> _changes = new();
+    private readonly Dictionary<(int Part, int Staff), ClefType> _initial = new();
+
+    public ClefTimeline(ScoreProject project)
+    {
+        for (var p = 0; p < project.Parts.Count; p++)
+        {
+            var part = project.Parts[p];
+            for (var s = 0; s < part.Staves.Count; s++)
+                _initial[(p, s)] = part.Staves[s].Clef;
+
+            for (var m = 0; m < part.Measures.Count; m++)
+            {
+                foreach (var change in part.Measures[m].ClefChanges)
+                {
+                    var key = (p, change.Staff);
+                    if (!_changes.TryGetValue(key, out var list)) _changes[key] = list = new();
+                    list.Add((m, new Rational(change.PositionNumerator, change.PositionDenominator), change.Clef));
+                }
+            }
+        }
+
+        foreach (var list in _changes.Values)
+            list.Sort((a, b) => a.Measure != b.Measure ? a.Measure.CompareTo(b.Measure) : a.Position.CompareTo(b.Position));
+    }
+
+    /// <summary>The clef in force at a point; a change exactly at that point already counts.</summary>
+    public ClefType ClefAt(int part, int staff, int measure, Rational position)
+    {
+        var clef = _initial.TryGetValue((part, staff), out var initial) ? initial : ClefType.Treble;
+        if (_changes.TryGetValue((part, staff), out var list))
+        {
+            foreach (var change in list)
+            {
+                if (change.Measure > measure || (change.Measure == measure && change.Position > position)) break;
+                clef = change.Clef;
+            }
+        }
+
+        return clef;
+    }
+
+    /// <summary>The clef a staff changes to at the very start of a measure, or null.</summary>
+    public ClefType? ChangeAtMeasureStart(int part, int staff, int measure)
+    {
+        if (!_changes.TryGetValue((part, staff), out var list)) return null;
+
+        ClefType? result = null;
+        foreach (var change in list)
+        {
+            if (change.Measure == measure && change.Position.Sign == 0) result = change.Clef;
+        }
+
+        return result;
+    }
 }

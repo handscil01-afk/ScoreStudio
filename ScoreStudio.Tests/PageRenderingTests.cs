@@ -101,10 +101,12 @@ public sealed class PageRenderingTests
 
         var placed = page.Items.OfType<GlyphItem>().Where(g => glyphs.Contains(g.Glyph)).ToList();
         Assert.NotEmpty(placed);
+        var fullSize = placed.Max(g => g.Size);
         foreach (var glyph in placed)
         {
+            // Smaller glyphs (clef changes inside a system) put down ink in proportion to their area.
             var ink = InkAdded(with, without, width, height, glyph.X - left, glyph.Y - up, glyph.X + right, glyph.Y + down);
-            Assert.True(ink >= minimumInk, $"page {page.Number}: {what} at ({glyph.X:F1}, {glyph.Y:F1}) mm added only {ink} dark pixels");
+            Assert.True(ink >= minimumInk * Math.Pow(glyph.Size / fullSize, 2), $"page {page.Number}: {what} at ({glyph.X:F1}, {glyph.Y:F1}) mm added only {ink} dark pixels");
         }
     }
 
@@ -113,6 +115,7 @@ public sealed class PageRenderingTests
     [InlineData("piano-grand-staff")]
     [InlineData("unsupported-features")]
     [InlineData("hymn-repeats-chords")]
+    [InlineData("layout-features")]
     public void ImportedMusicXml_DrawsClefsAndNoteheadsWhereTheLayoutPutsThem(string sample)
     {
         RunSta(() =>

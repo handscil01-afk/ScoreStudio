@@ -130,8 +130,9 @@ public static class ProjectFileService
             throw new ProjectFileException($"지원하지 않는 프로젝트 버전입니다: {version}");
 
         // Older files lack newer fields (version 1: staves; version 2: key, staff, voice; version 3: repeats, voltas,
-        // chord symbols, all lyric verses, ties). Validate and the model defaults fill them in, and a version 1–3
-        // "Lyric" becomes verse 1. Saving always writes the current version.
+        // chord symbols, all lyric verses, ties; version 4: clef changes, hidden staves, breaks, octave lines).
+        // Validate and the model defaults fill them in, and a version 1–3 "Lyric" becomes verse 1.
+        // Saving always writes the current version.
     }
 
     /// <summary>Fills in missing optional values and rejects data that would break later code.</summary>
@@ -192,6 +193,18 @@ public static class ProjectFileService
                     chord.Text ??= chord.RootStep;
                 }
 
+                measure.ClefChanges ??= new List<ScoreClefChange>();
+                foreach (var change in measure.ClefChanges)
+                {
+                    if (change is null || change.Staff < 0 || change.Staff >= part.Staves.Count || !Enum.IsDefined(change.Clef)
+                        || change.PositionNumerator < 0 || change.PositionDenominator <= 0)
+                        throw Corrupt($"{where}의 음자리표 변경 정보가 올바르지 않습니다.");
+                }
+
+                measure.HiddenStaves ??= new List<int>();
+                if (measure.HiddenStaves.Any(s => s < 0 || s >= part.Staves.Count))
+                    throw Corrupt($"{where}의 숨긴 보표 정보가 올바르지 않습니다.");
+
                 measure.Events ??= new List<ScoreEvent>();
 
                 for (var e = 0; e < measure.Events.Count; e++)
@@ -208,6 +221,8 @@ public static class ProjectFileService
                         throw Corrupt($"{where}의 {e + 1}번째 음표/쉼표가 없는 보표({item.Staff + 1}번째)를 가리킵니다.");
                     if (item.Voice < 1)
                         throw Corrupt($"{where}의 {e + 1}번째 음표/쉼표의 성부 번호({item.Voice})가 올바르지 않습니다.");
+                    if (item.OctaveShift is < -2 or > 2)
+                        throw Corrupt($"{where}의 {e + 1}번째 음표의 옥타브 기호 값({item.OctaveShift})이 올바르지 않습니다.");
 
                     item.Lyrics ??= new List<ScoreLyric>();
                     if (!string.IsNullOrEmpty(item.LegacyLyric) && item.Lyrics.All(l => l?.Verse != 1))

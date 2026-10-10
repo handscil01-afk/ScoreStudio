@@ -160,13 +160,99 @@ public sealed class NoteLayoutTests
     [InlineData("piano-grand-staff.musicxml")]
     [InlineData("unsupported-features.musicxml")]
     [InlineData("hymn-repeats-chords.musicxml")]
+    [InlineData("layout-features.musicxml")]
     public void EveryImportedNoteGetsAHead_AndEveryRestAGlyph(string file)
     {
-        var result = MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", file));
-        var items = ScoreLayoutEngine.Layout(result.Project).Pages.SelectMany(p => p.Items).OfType<GlyphItem>().ToList();
+        var project = MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", file)).Project;
+        var items = ScoreLayoutEngine.Layout(project).Pages.SelectMany(p => p.Items).OfType<GlyphItem>().ToList();
 
-        Assert.Equal(result.Summary.Notes, items.Count(g => Noteheads.Contains(g.Glyph)));
-        Assert.Equal(result.Summary.Rests, items.Count(g => g.Glyph >= Smufl.RestDoubleWhole && g.Glyph <= Smufl.RestDoubleWhole + 7));
+        // Notes and rests on hidden staves are not drawn.
+        var shown = project.Parts.SelectMany(p => p.Measures).SelectMany(m => m.Events.Where(e => !m.HiddenStaves.Contains(e.Staff))).ToList();
+        Assert.Equal(shown.Count(e => e.Kind == "Note"), items.Count(g => Noteheads.Contains(g.Glyph)));
+        Assert.Equal(shown.Count(e => e.Kind == "Rest"), items.Count(g => g.Glyph >= Smufl.RestDoubleWhole && g.Glyph <= Smufl.RestDoubleWhole + 7));
+    }
+
+    private static ScoreLayout LayoutFeatures() =>
+        ScoreLayoutEngine.Layout(MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", "layout-features.musicxml")).Project);
+
+    private static List<GlyphItem> GlyphsIn(PageLayout page, double left, double right, double top, double bottom, params char[] glyphs) =>
+        page.Items.OfType<GlyphItem>()
+            .Where(g => glyphs.Contains(g.Glyph) && g.X >= left && g.X < right && g.Y >= top && g.Y <= bottom)
+            .OrderBy(g => g.X).ToList();
+
+    [Fact]
+    public void LayoutFeatures_FollowTheSourceLineAndPageBreaks_AndLeaveOutHiddenStaves()
+    {
+        var layout = LayoutFeatures();
+
+        Assert.Equal(2, layout.Pages.Count);
+        Assert.Equal(
+            new[] { "1-2:P1", "3-4:P1,P2", "5-5:P1,P2" },
+            layout.Pages.SelectMany(p => p.Systems).Select(s =>
+                $"{s.Measures[0].MeasureIndex + 1}-{s.Measures[^1].MeasureIndex + 1}:{string.Join(",", s.Staves.Select(st => $"P{st.PartIndex + 1}"))}"));
+        Assert.Equal(2, layout.Pages[0].Systems.Count);
+        Assert.Equal(5, layout.Pages[1].Systems.Single().Measures[0].MeasureIndex + 1);
+    }
+
+    [Fact]
+    public void LayoutFeatures_SystemsStartWithTheClefInForce_AndChangesAreDrawnSmallWhereTheyHappen()
+    {
+        var page = LayoutFeatures().Pages[0];
+        var (first, second) = (page.Systems[0], page.Systems[1]);
+        var clefs = new[] { Smufl.GClef, Smufl.FClef };
+        var changeSize = 4 * Sp * Smufl.ClefChangeScale;
+
+        Assert.Equal(ClefType.Treble, first.Staves[0].Clef);
+        Assert.Equal(ClefType.Treble, second.Staves[0].Clef); // measure 3 changes back to treble right at the system start
+        Assert.Equal(ClefType.Bass, second.Staves[1].Clef);
+
+        // Measure 2: a small bass clef before its first note, inside the measure's space rather than in the header.
+        var m2 = first.Measures[1];
+        var m2Clef = Assert.Single(GlyphsIn(page, m2.Left - Sp, m2.Right, first.Top, first.Bottom, clefs), g => g.Size < 4 * Sp);
+        Assert.Equal((Smufl.FClef, changeSize), (m2Clef.Glyph, m2Clef.Size));
+        var m2Heads = GlyphsIn(page, m2.Left, m2.Right, first.Top - 10 * Sp, first.Bottom + 10 * Sp, Noteheads);
+        Assert.True(m2Clef.X < m2Heads[0].X);
+
+        // Measure 3 starts the second system with a full-size treble clef and no extra small clef.
+        var staffTop = second.Staves[0].Top;
+        var m3 = second.Measures[0];
+        Assert.DoesNotContain(GlyphsIn(page, second.Left, m3.Right, staffTop - 2 * Sp, staffTop + 6 * Sp, clefs), g => g.Size < 4 * Sp);
+
+        // Measure 4: the bass clef comes on beat 3, between the half notes.
+        var m4 = second.Measures[1];
+        var m4Clef = Assert.Single(GlyphsIn(page, m4.Left, m4.Right, staffTop - 2 * Sp, staffTop + 6 * Sp, clefs));
+        Assert.Equal((Smufl.FClef, changeSize), (m4Clef.Glyph, m4Clef.Size));
+        var m4Heads = GlyphsIn(page, m4.Left, m4.Right, staffTop - 10 * Sp, staffTop + 10 * Sp, Noteheads);
+        Assert.Equal(2, m4Heads.Count);
+        Assert.True(m4Heads[0].X < m4Clef.X && m4Clef.X < m4Heads[1].X);
+
+        // After the change the C3 half note sits in the bass staff's second space from the bottom.
+        Assert.Equal(staffTop + 2.5 * Sp, m4Heads[1].Y, 6);
+    }
+
+    [Fact]
+    public void LayoutFeatures_OctaveLine_WritesNotesAnOctaveLower_AndDrawsTheLabelAboveTheStaff()
+    {
+        var page = LayoutFeatures().Pages[0];
+        var system = page.Systems[1];
+        var staffTop = system.Staves[0].Top;
+        var m3 = system.Measures[0];
+
+        var label = Assert.Single(page.Items.OfType<GlyphItem>(), g => g.Glyph == Smufl.OttavaAlta);
+        Assert.True(label.Y < staffTop, "8va label above the staff");
+        Assert.InRange(label.X, m3.Left, m3.Right);
+
+        // Sounding C6 D6 E6 F6 are written as C5 D5 E5 F5 (third space up to top line); the whole-note A5 as A4.
+        var heads = GlyphsIn(page, m3.Left, m3.Right, staffTop - 10 * Sp, staffTop + 10 * Sp, Noteheads);
+        var quarters = heads.Where(h => h.Glyph == Smufl.NoteheadBlack).Select(h => Math.Round((h.Y - staffTop) / Sp, 3));
+        Assert.Equal(new[] { 1.5, 1.0, 0.5, 0.0 }, quarters);
+        Assert.Equal(2.5, Math.Round((heads.Single(h => h.Glyph == Smufl.NoteheadWhole).Y - staffTop) / Sp, 3));
+
+        // The dashed line ends with a hook down to the staff, before measure 4.
+        var lines = page.Items.OfType<LineItem>().Where(l => l.Y1 < staffTop && l.Y1 > staffTop - 6 * Sp && l.Y2 < staffTop && l.X1 > label.X).ToList();
+        Assert.NotEmpty(lines);
+        Assert.True(lines.Max(l => Math.Max(l.X1, l.X2)) <= system.Measures[1].Left + Sp);
+        Assert.Contains(lines, l => Math.Abs(l.X1 - l.X2) < 1e-9 && l.Y2 > l.Y1);
     }
 
     [Fact]

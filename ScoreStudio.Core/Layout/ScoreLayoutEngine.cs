@@ -64,7 +64,9 @@ public static class ScoreLayoutEngine
     private const double MeasureNumberSize = 2.6;
     private const double PageNumberSize = 3.5;
 
-    private sealed record MeasureInfo(int Number, int Numerator, int Denominator, bool ShowsTimeSignature, int[] Keys, bool KeyChanges);
+    private sealed record MeasureInfo(
+        int Number, int Numerator, int Denominator, bool ShowsTimeSignature, int[] Keys, bool KeyChanges,
+        bool ClefChangeAtStart, bool SystemBreak, bool PageBreak);
 
     private sealed record StaffSlot(int PartIndex, int StaffIndex, ClefType Clef, double Offset);
 
@@ -97,28 +99,32 @@ public static class ScoreLayoutEngine
         var page = NewPage(pages, pageWidth, pageHeight, options);
         var y = DrawTitle(page, project, options);
 
-        var slots = BuildStaffSlots(project, options);
-        if (slots.Count == 0)
+        var allSlots = BuildStaffSlots(project, options, isVisible: null);
+        if (allSlots.Count == 0)
         {
             page.Items.Add(new TextItem("파트가 없습니다.", pageWidth / 2, y + 10, ComposerSize, TextAnchor.Middle));
             return new ScoreLayout { Pages = pages };
         }
 
-        var systemHeight = slots[^1].Offset + 4 * sp;
+        var clefs = new ClefTimeline(project);
         var measures = BuildMeasureInfos(project);
-        var prepared = NotePreparation.Prepare(project, measures.Count);
+        var prepared = NotePreparation.Prepare(project, measures.Count, clefs);
         var nameIndent = PartNameIndent(project);
-        var planned = PlanSystems(measures, prepared, slots, contentLeft, contentRight, nameIndent, options);
+        var planned = PlanSystems(measures, prepared, allSlots, contentLeft, contentRight, nameIndent, options);
 
         for (var i = 0; i < planned.Count; i++)
         {
-            if (y + systemHeight > contentBottom && page.Systems.Count > 0)
+            // Staves hidden throughout a system (Finale's hidden empty staves) are left out of it.
+            var slots = VisibleSlots(project, planned[i], options) is { Count: > 0 } visible ? visible : allSlots;
+            var systemHeight = slots[^1].Offset + 4 * sp;
+            var pageBreak = planned[i].MeasureCount > 0 && measures[planned[i].FirstMeasure].PageBreak;
+            if ((y + systemHeight > contentBottom || pageBreak) && page.Systems.Count > 0)
             {
                 page = NewPage(pages, pageWidth, pageHeight, options);
                 y = options.Margin;
             }
 
-            var system = DrawSystem(page, project, planned[i], i == 0, i == planned.Count - 1, slots, measures, prepared, y, options);
+            var system = DrawSystem(page, project, planned[i], i == 0, i == planned.Count - 1, slots, clefs, measures, prepared, y, options);
             page.Systems.Add(system);
             y += systemHeight + options.SystemGap * sp;
         }
@@ -164,23 +170,32 @@ public static class ScoreLayoutEngine
         return hasTitle || hasComposer ? y + 12 : y;
     }
 
-    private static List<StaffSlot> BuildStaffSlots(ScoreProject project, LayoutOptions options)
+    private static List<StaffSlot> BuildStaffSlots(ScoreProject project, LayoutOptions options, Func<int, int, bool>? isVisible)
     {
         var slots = new List<StaffSlot>();
         var offset = 0.0;
         for (var p = 0; p < project.Parts.Count; p++)
         {
             var staves = project.Parts[p].Staves;
+            var firstOfPart = true;
             for (var s = 0; s < staves.Count; s++)
             {
+                if (isVisible is not null && !isVisible(p, s)) continue;
                 if (slots.Count > 0)
-                    offset += (4 + (s == 0 ? options.StaffGapBetweenParts : options.StaffGapInPart)) * options.StaffSpace;
+                    offset += (4 + (firstOfPart ? options.StaffGapBetweenParts : options.StaffGapInPart)) * options.StaffSpace;
                 slots.Add(new StaffSlot(p, s, staves[s].Clef, offset));
+                firstOfPart = false;
             }
         }
 
         return slots;
     }
+
+    /// <summary>Staves that are shown in at least one measure of the system.</summary>
+    private static List<StaffSlot> VisibleSlots(ScoreProject project, PlannedSystem system, LayoutOptions options) =>
+        BuildStaffSlots(project, options, (p, s) =>
+            system.MeasureCount == 0
+            || system.Measures.Any(m => project.Parts[p].Measures.Count <= m.Index || !project.Parts[p].Measures[m.Index].HiddenStaves.Contains(s)));
 
     /// <summary>
     /// Measures are aligned across parts by index. The time signature comes from the first part that has the measure.
@@ -201,7 +216,11 @@ public static class ScoreLayoutEngine
             var keys = project.Parts.Select((part, p) =>
                 part.Measures.Count > i ? part.Measures[i].KeyFifths : previous?.Keys[p] ?? 0).ToArray();
             var keyChanges = previous is not null && !keys.SequenceEqual(previous.Keys);
-            infos.Add(new MeasureInfo(measure.Number, measure.Numerator, measure.Denominator, changed, keys, keyChanges));
+            var parts = project.Parts.Where(p => p.Measures.Count > i).Select(p => p.Measures[i]).ToList();
+            infos.Add(new MeasureInfo(measure.Number, measure.Numerator, measure.Denominator, changed, keys, keyChanges,
+                ClefChangeAtStart: i > 0 && parts.Any(m => m.ClefChanges.Any(c => c.PositionNumerator == 0)),
+                SystemBreak: i > 0 && parts.Any(m => m.SystemBreak),
+                PageBreak: i > 0 && parts.Any(m => m.PageBreak)));
         }
 
         return infos;
@@ -242,7 +261,7 @@ public static class ScoreLayoutEngine
     /// <summary>Room at the start of a measure in mid-system for a key or time signature change, in staff spaces.</summary>
     private static double MeasurePrefixWidth(MeasureInfo m)
     {
-        var width = 0.0;
+        var width = m.ClefChangeAtStart ? NotePreparation.ClefChangeWidth : 0.0;
         if (m.KeyChanges) width += KeySignatureWidth(m) + 1;
         if (m.ShowsTimeSignature) width += TimeSignatureWidth(m) + 1;
         return width > 0 ? width + 1 : 0;
@@ -259,12 +278,19 @@ public static class ScoreLayoutEngine
         return (width, segments);
     }
 
+    /// <summary>
+    /// How far note spacing may be squeezed to keep the source file's line breaks (e.g. Finale's layout), as a factor
+    /// of the natural spacing. Beyond that the measures are spread over more systems.
+    /// </summary>
+    private const double MinimumSpacingScale = 0.6;
+
     private static List<PlannedSystem> PlanSystems(
         List<MeasureInfo> measures, PreparedMeasure[] prepared, List<StaffSlot> slots,
         double contentLeft, double contentRight, double nameIndent, LayoutOptions options)
     {
         var sp = options.StaffSpace;
         var clefWidth = slots.Max(s => Smufl.ClefAdvanceWidth(s.Clef));
+        var followSourceBreaks = measures.Any(m => m.SystemBreak);
         var systems = new List<PlannedSystem>();
         var next = 0;
 
@@ -274,25 +300,48 @@ public static class ScoreLayoutEngine
             var available = contentRight - left;
             var header = HeaderWidth(next < measures.Count ? measures[next] : null, clefWidth) * sp;
 
-            var chosen = new List<(int Index, double Prefix, double Width, double Stretch)>();
-            var used = header;
-            var end = next;
-            while (end < measures.Count)
+            // Measures up to the next source line break (or the end of the piece).
+            var segmentEnd = next + 1;
+            while (segmentEnd < measures.Count && !measures[segmentEnd].SystemBreak) segmentEnd++;
+            if (measures.Count == 0) segmentEnd = 0;
+
+            var segment = new List<(int Index, double Prefix, double Width, double Stretch)>();
+            for (var m = next; m < segmentEnd; m++)
             {
-                var prefix = end > next ? MeasurePrefixWidth(measures[end]) * sp : 0;
-                var (content, stretch) = MeasureContentWidth(prepared[end], options);
-                var width = prefix + content * sp;
-                if (end > next && used + width > available)
-                    break;
-                chosen.Add((end, prefix, width, stretch * sp));
-                used += width;
-                end++;
+                var prefix = m > next ? MeasurePrefixWidth(measures[m]) * sp : 0;
+                var (content, stretch) = MeasureContentWidth(prepared[m], options);
+                segment.Add((m, prefix, prefix + content * sp, stretch * sp));
             }
 
-            // Stretch every system but the last to the right margin, in proportion to each measure's note spacing.
+            var used = header + segment.Sum(c => c.Width);
+            var totalStretch = segment.Sum(c => c.Stretch);
+            List<(int Index, double Prefix, double Width, double Stretch)> chosen;
+            if (used <= available
+                || (followSourceBreaks && totalStretch > 0 && 1 + (available - used) / totalStretch >= MinimumSpacingScale))
+            {
+                // The whole segment fits, if need be with tighter spacing.
+                chosen = segment;
+            }
+            else
+            {
+                // Too long: fill the system greedily with as many measures as fit at natural spacing.
+                chosen = new List<(int Index, double Prefix, double Width, double Stretch)>();
+                var width = header;
+                foreach (var candidate in segment)
+                {
+                    if (chosen.Count > 0 && width + candidate.Width > available) break;
+                    chosen.Add(candidate);
+                    width += candidate.Width;
+                }
+            }
+
+            // Stretch (or squeeze) every system but the last to the right margin, in proportion to each measure's
+            // note spacing. The last system keeps its natural width unless it has to be squeezed.
+            var end = next + chosen.Count;
+            used = header + chosen.Sum(c => c.Width);
+            totalStretch = chosen.Sum(c => c.Stretch);
             var isLast = end >= measures.Count;
-            var totalStretch = chosen.Sum(c => c.Stretch);
-            var extra = !isLast && totalStretch > 0 ? Math.Max(available - used, 0) : 0;
+            var extra = totalStretch > 0 && (!isLast || used > available) ? available - used : 0;
             var plannedMeasures = chosen.Select(c =>
             {
                 var added = totalStretch > 0 ? extra * c.Stretch / totalStretch : 0;
@@ -310,10 +359,15 @@ public static class ScoreLayoutEngine
 
     private static SystemLayout DrawSystem(
         PageLayout page, ScoreProject project, PlannedSystem plan, bool isFirstSystem, bool isLastSystem,
-        List<StaffSlot> slots, List<MeasureInfo> measures, PreparedMeasure[] prepared, double top, LayoutOptions options)
+        List<StaffSlot> slots, ClefTimeline clefs, List<MeasureInfo> measures, PreparedMeasure[] prepared, double top, LayoutOptions options)
     {
         var sp = options.StaffSpace;
         var items = page.Items;
+
+        // Each staff starts the system with the clef in force at that point, after any earlier clef changes.
+        if (plan.MeasureCount > 0)
+            slots = slots.Select(s => s with { Clef = clefs.ClefAt(s.PartIndex, s.StaffIndex, plan.FirstMeasure, Rational.Zero) }).ToList();
+
         var left = plan.Left;
         var right = plan.MeasureCount == 0
             ? page.Width - options.Margin
@@ -371,13 +425,14 @@ public static class ScoreLayoutEngine
         {
             var first = measures[plan.FirstMeasure];
             var keyX = left + (1 + clefWidth + 1) * sp;
-            DrawKeySignature(items, slots, staffTops, first.Keys, keyX, sp);
+            DrawKeySignature(items, slots, slots.Select(s => s.Clef).ToArray(), staffTops, first.Keys, keyX, sp);
             if (first.ShowsTimeSignature)
                 DrawTimeSignature(items, first, left + plan.HeaderWidth - (TimeSignatureWidth(first) + 1.5) * sp, staffTops, sp);
         }
 
-        // Measures: key/time changes, notes and rests, barlines.
+        // Measures: clef/key/time changes, notes and rests, barlines.
         var measureLayouts = new List<MeasureLayout>();
+        var placed = new List<(int Slot, PreparedChord Chord, double X)>();
         var x = left + plan.HeaderWidth;
         for (var k = 0; k < plan.MeasureCount; k++)
         {
@@ -390,9 +445,21 @@ public static class ScoreLayoutEngine
             if (k > 0 && planned.Prefix > 0)
             {
                 var prefixX = measureLeft + sp;
+                if (info.ClefChangeAtStart)
+                {
+                    for (var i = 0; i < slots.Count; i++)
+                    {
+                        if (clefs.ChangeAtMeasureStart(slots[i].PartIndex, slots[i].StaffIndex, index) is { } newClef)
+                            DrawClef(items, newClef, prefixX, staffTops[i], Smufl.ClefChangeScale, sp);
+                    }
+
+                    prefixX += NotePreparation.ClefChangeWidth * sp;
+                }
+
                 if (info.KeyChanges)
                 {
-                    DrawKeySignature(items, slots, staffTops, info.Keys, prefixX, sp);
+                    var clefsHere = slots.Select(s => clefs.ClefAt(s.PartIndex, s.StaffIndex, index, Rational.Zero)).ToArray();
+                    DrawKeySignature(items, slots, clefsHere, staffTops, info.Keys, prefixX, sp);
                     prefixX += (KeySignatureWidth(info) + 1) * sp;
                 }
 
@@ -400,13 +467,15 @@ public static class ScoreLayoutEngine
                     DrawTimeSignature(items, info, prefixX, staffTops, sp);
             }
 
-            DrawMeasureNotes(items, prepared[index], slots, staffTops, measureLeft + planned.Prefix, measureRight, planned.Scale, sp);
+            DrawMeasureNotes(items, prepared[index], slots, staffTops, measureLeft + planned.Prefix, measureRight, planned.Scale, sp, placed);
 
             var isFinal = isLastSystem && k == plan.MeasureCount - 1;
             DrawBarline(items, slots, top, measureRight, isFinal, sp);
             measureLayouts.Add(new MeasureLayout(index, measureLeft, measureRight, info.ShowsTimeSignature));
             x = measureRight;
         }
+
+        DrawOctaveLines(items, placed, staffTops, sp);
 
         return new SystemLayout
         {
@@ -422,13 +491,17 @@ public static class ScoreLayoutEngine
     /// <summary>Y of a staff position: 0 is the bottom line, 8 the top line, each step half a staff space.</summary>
     private static double StaffY(double staffTop, int position, double sp) => staffTop + (8 - position) * sp / 2;
 
-    private static void DrawKeySignature(List<DrawItem> items, List<StaffSlot> slots, double[] staffTops, int[] keys, double x, double sp)
+    private static void DrawClef(List<DrawItem> items, ClefType clef, double x, double staffTop, double scale, double sp) =>
+        items.Add(new GlyphItem(Smufl.ClefGlyph(clef), x, staffTop + Smufl.ClefLine(clef) * sp, 4 * sp * scale));
+
+    private static void DrawKeySignature(
+        List<DrawItem> items, List<StaffSlot> slots, ClefType[] clefs, double[] staffTops, int[] keys, double x, double sp)
     {
         for (var i = 0; i < slots.Count; i++)
         {
             var fifths = keys[slots[i].PartIndex];
             var glyph = fifths > 0 ? Smufl.AccidentalSharp : Smufl.AccidentalFlat;
-            var positions = Notation.KeySignaturePositions(fifths, slots[i].Clef);
+            var positions = Notation.KeySignaturePositions(fifths, clefs[i]);
             for (var a = 0; a < positions.Count; a++)
                 items.Add(new GlyphItem(glyph, x + a * sp, StaffY(staffTops[i], positions[a], sp), 4 * sp));
         }
@@ -436,18 +509,28 @@ public static class ScoreLayoutEngine
 
     private static void DrawMeasureNotes(
         List<DrawItem> items, PreparedMeasure measure, List<StaffSlot> slots, double[] staffTops,
-        double contentLeft, double measureRight, double scale, double sp)
+        double contentLeft, double measureRight, double scale, double sp, List<(int Slot, PreparedChord Chord, double X)> placed)
     {
         if (measure.IsEmpty) return;
 
         // X of every onset: padding, then for each onset its accidental room and its (stretched) space to the next.
         var onsetX = new Dictionary<Rational, double>();
+        var preStart = new Dictionary<Rational, double>();
         var x = contentLeft + MeasureLeftPadding * sp;
         for (var i = 0; i < measure.Onsets.Count; i++)
         {
+            preStart[measure.Onsets[i]] = x;
             x += measure.Pre[i] * sp;
             onsetX[measure.Onsets[i]] = x;
             x += measure.Segments[i] * scale * sp;
+        }
+
+        // Mid-measure clef changes sit at the start of the room reserved before their onset.
+        foreach (var change in measure.MidMeasureClefs)
+        {
+            var slotIndex = slots.FindIndex(s => s.PartIndex == change.PartIndex && s.StaffIndex == change.Staff);
+            if (slotIndex >= 0 && preStart.TryGetValue(change.Onset, out var clefX))
+                DrawClef(items, change.Clef, clefX + 0.2 * sp, staffTops[slotIndex], Smufl.ClefChangeScale, sp);
         }
 
         foreach (var chord in measure.Chords)
@@ -466,8 +549,63 @@ public static class ScoreLayoutEngine
             else
             {
                 DrawChord(items, chord, onsetX[chord.Start], staffTop, sp);
+                placed.Add((slotIndex, chord, onsetX[chord.Start]));
             }
         }
+    }
+
+    /// <summary>
+    /// Octave lines ("8va - - -┐") over each run of notes that share a shift on a staff: above the staff for 8va/15ma,
+    /// below it for 8vb/15mb, clear of the notes and their stems.
+    /// </summary>
+    private static void DrawOctaveLines(List<DrawItem> items, List<(int Slot, PreparedChord Chord, double X)> placed, double[] staffTops, double sp)
+    {
+        foreach (var staff in placed.GroupBy(p => p.Slot))
+        {
+            var ordered = staff.OrderBy(p => p.X).ToList();
+            var i = 0;
+            while (i < ordered.Count)
+            {
+                var shift = ordered[i].Chord.OctaveShift;
+                var j = i;
+                while (j + 1 < ordered.Count && ordered[j + 1].Chord.OctaveShift == shift) j++;
+                if (shift != 0)
+                    DrawOctaveLine(items, ordered.GetRange(i, j - i + 1), shift, staffTops[staff.Key], sp);
+                i = j + 1;
+            }
+        }
+    }
+
+    private static void DrawOctaveLine(List<DrawItem> items, List<(int Slot, PreparedChord Chord, double X)> run, int shift, double staffTop, double sp)
+    {
+        const double labelScale = 0.8;
+        var above = shift > 0;
+        var thickness = Smufl.StemThickness * sp;
+
+        double baseline;
+        if (above)
+        {
+            var highest = run.Min(r => StaffY(staffTop, r.Chord.Notes.Max(n => n.Position), sp)
+                - (r.Chord.StemUp && r.Chord.Value.Type > NoteType.Whole ? 3.5 : 0.6) * sp);
+            baseline = Math.Min(staffTop - 1.5 * sp, highest - 0.8 * sp);
+        }
+        else
+        {
+            var lowest = run.Max(r => StaffY(staffTop, r.Chord.Notes.Min(n => n.Position), sp)
+                + (!r.Chord.StemUp && r.Chord.Value.Type > NoteType.Whole ? 3.5 : 0.6) * sp);
+            baseline = Math.Max(staffTop + 7 * sp, lowest + 2.2 * sp);
+        }
+
+        var startX = run[0].X;
+        var last = run[^1];
+        var endX = last.X + Smufl.NoteheadWidth(last.Chord.Value.Type) * sp;
+        items.Add(new GlyphItem(Smufl.OctaveLineLabel(shift), startX, baseline, 4 * sp * labelScale));
+
+        // Dashed line from the label to the last note, then a short hook towards the staff.
+        var lineY = baseline - 0.7 * sp;
+        for (var dashX = startX + (Smufl.OctaveLineLabelWidth(shift) * labelScale + 0.5) * sp; dashX < endX; dashX += 1.25 * sp)
+            items.Add(new LineItem(dashX, lineY, Math.Min(dashX + 0.75 * sp, endX), lineY, thickness));
+        items.Add(new LineItem(endX, lineY, endX, lineY + (above ? 1 : -1) * sp, thickness));
     }
 
     private static void DrawRest(List<DrawItem> items, PreparedChord rest, double x, double staffTop, double sp)

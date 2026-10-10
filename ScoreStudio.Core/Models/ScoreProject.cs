@@ -9,7 +9,7 @@ namespace ScoreStudio.Models;
 public sealed class ScoreProject
 {
     /// <summary>The project file schema version this build reads and writes.</summary>
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string Title { get; set; } = "새 악보";
@@ -88,6 +88,26 @@ public sealed class ScoreMeasure
 
     /// <summary>Chord symbols written above the part, such as "Bbmaj7/D".</summary>
     public List<ScoreChordSymbol> ChordSymbols { get; set; } = new();
+
+    /// <summary>Clef changes in this measure. The clef at the start of the piece is <see cref="ScoreStaff.Clef"/>.</summary>
+    public List<ScoreClefChange> ClefChanges { get; set; } = new();
+
+    /// <summary>Staves of the part (indices from 0) that are hidden in this measure, as in Finale's hidden empty staves.</summary>
+    public List<int> HiddenStaves { get; set; } = new();
+
+    /// <summary>A new system starts with this measure (a line break taken from the source file).</summary>
+    public bool SystemBreak { get; set; }
+
+    /// <summary>A new page starts with this measure.</summary>
+    public bool PageBreak { get; set; }
+}
+
+public sealed class ScoreClefChange
+{
+    public int Staff { get; set; }
+    public int PositionNumerator { get; set; }
+    public int PositionDenominator { get; set; } = 1;
+    public ClefType Clef { get; set; } = ClefType.Treble;
 }
 
 /// <summary>A 1st/2nd ending bracket.</summary>
@@ -154,6 +174,12 @@ public sealed class ScoreEvent
 
     /// <summary>A tie from this note to the next note of the same pitch.</summary>
     public bool TieToNext { get; set; }
+
+    /// <summary>
+    /// Octave-line shift: 1 for 8va and 2 for 15ma (written lower than sounding), −1 for 8vb and −2 for 15mb.
+    /// <see cref="MidiPitch"/> and <see cref="NotationSpelling"/> always hold the sounding pitch.
+    /// </summary>
+    public int OctaveShift { get; set; }
 
     /// <summary>Index into the part's staves, starting at 0.</summary>
     public int Staff { get; set; }

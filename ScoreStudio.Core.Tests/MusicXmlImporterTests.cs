@@ -110,7 +110,6 @@ public sealed class MusicXmlImporterTests : IDisposable
                 ["이음줄"] = 1,
                 ["아티큘레이션(스타카토, 악센트 등)"] = 1,
                 ["페르마타"] = 1,
-                ["중간 음자리표 변경은 가져오지 않음 (처음 음자리표를 유지)"] = 1,
             },
             warnings);
         Assert.Equal("플루트 1마디", result.Warnings.First(w => w.Message == "꾸밈음").FirstLocation);
@@ -128,6 +127,10 @@ public sealed class MusicXmlImporterTests : IDisposable
         Assert.Equal("C", Assert.Single(part.Measures[0].ChordSymbols).Text);
         Assert.Equal((true, false), (part.Measures[0].RepeatStart, part.Measures[0].RepeatEnd));
         Assert.Equal((false, true), (part.Measures[1].RepeatStart, part.Measures[1].RepeatEnd));
+
+        // Imported since schema version 5: the bass clef at the start of measure 2.
+        var clefChange = Assert.Single(part.Measures[1].ClefChanges);
+        Assert.Equal((0, 0, ClefType.Bass), (clefChange.Staff, clefChange.PositionNumerator, clefChange.Clef));
         Assert.Equal(new[] { "0/1", "2/1", "3/1" }, part.Measures[0].Events.Select(e => Fraction(e.PositionNumerator, e.PositionDenominator)));
     }
 
@@ -139,6 +142,7 @@ public sealed class MusicXmlImporterTests : IDisposable
     [InlineData("piano-grand-staff.musicxml")]
     [InlineData("unsupported-features.musicxml")]
     [InlineData("hymn-repeats-chords.musicxml")]
+    [InlineData("layout-features.musicxml")]
     public void ImportedCounts_MatchCountsTakenDirectlyFromTheSource(string file)
     {
         var source = XDocument.Load(Sample(file));
@@ -232,6 +236,38 @@ public sealed class MusicXmlImporterTests : IDisposable
         Assert.Equal(("1", "1.", 1, false), (measures[1].Volta!.Numbers, measures[1].Volta!.Text, measures[1].Volta!.MeasureCount, measures[1].Volta!.OpenEnd));
         Assert.Equal(("2", "2.", 1, true), (measures[2].Volta!.Numbers, measures[2].Volta!.Text, measures[2].Volta!.MeasureCount, measures[2].Volta!.OpenEnd));
         Assert.Null(measures[3].Volta);
+    }
+
+    [Fact]
+    public void LayoutFeatures_ClefChangesHiddenStavesBreaksAndOctaveLinesMatchTheSource()
+    {
+        var result = MusicXmlImporter.ImportFile(Sample("layout-features.musicxml"));
+        var (melody, lower) = (result.Project.Parts[0], result.Project.Parts[1]);
+
+        Assert.Empty(result.Warnings);
+        Assert.Equal(("멜로디", "파트 2"), (melody.Name, lower.Name));
+
+        // The first clef is the staff's clef; later ones are changes at the time they appear in the measure.
+        Assert.Equal(ClefType.Treble, melody.Staves[0].Clef);
+        Assert.Equal(
+            new[] { "2: 0/1 Bass", "3: 0/1 Treble", "4: 2/1 Bass" },
+            melody.Measures.SelectMany(m => m.ClefChanges.Select(c =>
+                $"{m.Number}: {Fraction(c.PositionNumerator, c.PositionDenominator)} {c.Clef}")));
+        Assert.All(lower.Measures, m => Assert.Empty(m.ClefChanges));
+
+        // The 8va line (octave-shift type "down") covers both voices of measure 3 and stops before measure 4.
+        // Pitches stay as sounded; OctaveShift only says how they are written.
+        var m3 = melody.Measures[2].Events;
+        Assert.Equal(new[] { 84, 86, 88, 89, 81 }, m3.Select(e => e.MidiPitch));
+        Assert.Equal(new[] { "C6", "D6", "E6", "F6", "A5" }, m3.Select(e => e.NotationSpelling));
+        Assert.All(m3, e => Assert.Equal(1, e.OctaveShift));
+        Assert.All(melody.Measures.Where(m => m.Number != 3).SelectMany(m => m.Events), e => Assert.Equal(0, e.OctaveShift));
+
+        Assert.Equal(new[] { "1:0", "2:0", "3:", "4:", "5:" }, lower.Measures.Select(m => $"{m.Number}:{string.Join(",", m.HiddenStaves)}"));
+        Assert.All(melody.Measures, m => Assert.Empty(m.HiddenStaves));
+
+        Assert.Equal(new[] { 3, 5 }, melody.Measures.Where(m => m.SystemBreak).Select(m => m.Number));
+        Assert.Equal(new[] { 5 }, melody.Measures.Where(m => m.PageBreak).Select(m => m.Number));
     }
 
     [Fact]
@@ -373,6 +409,7 @@ public sealed class MusicXmlImporterTests : IDisposable
     [InlineData("piano-grand-staff.musicxml")]
     [InlineData("unsupported-features.musicxml")]
     [InlineData("hymn-repeats-chords.musicxml")]
+    [InlineData("layout-features.musicxml")]
     public void ImportedProject_SurvivesSaveAndReopen(string file)
     {
         var imported = MusicXmlImporter.ImportFile(Sample(file)).Project;
