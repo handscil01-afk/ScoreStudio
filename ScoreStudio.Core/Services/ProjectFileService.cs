@@ -129,7 +129,8 @@ public static class ProjectFileService
         if (version < 1)
             throw new ProjectFileException($"지원하지 않는 프로젝트 버전입니다: {version}");
 
-        // Version 1 files have no staves; Validate fills them in. Saving always writes the current version.
+        // Older files lack newer fields (version 1: staves; version 2: key, staff, voice); Validate and the model
+        // defaults fill them in. Saving always writes the current version.
     }
 
     /// <summary>Fills in missing optional values and rejects data that would break later code.</summary>
@@ -166,6 +167,8 @@ public static class ProjectFileService
                 var measure = part.Measures[m] ?? throw Corrupt($"{where} 데이터가 비어 있습니다.");
                 if (measure.Numerator <= 0 || measure.Denominator <= 0)
                     throw Corrupt($"{where}의 박자표({measure.Numerator}/{measure.Denominator})가 올바르지 않습니다.");
+                if (measure.KeyFifths is < -7 or > 7)
+                    throw Corrupt($"{where}의 조표({measure.KeyFifths})가 범위(−7~7)를 벗어났습니다.");
                 measure.Events ??= new List<ScoreEvent>();
 
                 for (var e = 0; e < measure.Events.Count; e++)
@@ -178,6 +181,10 @@ public static class ProjectFileService
                         throw Corrupt($"{where}의 {e + 1}번째 음표/쉼표 위치가 올바르지 않습니다.");
                     if (item.MidiPitch is < 0 or > 127)
                         throw Corrupt($"{where}의 {e + 1}번째 음높이({item.MidiPitch})가 범위(0~127)를 벗어났습니다.");
+                    if (item.Staff < 0 || item.Staff >= part.Staves.Count)
+                        throw Corrupt($"{where}의 {e + 1}번째 음표/쉼표가 없는 보표({item.Staff + 1}번째)를 가리킵니다.");
+                    if (item.Voice < 1)
+                        throw Corrupt($"{where}의 {e + 1}번째 음표/쉼표의 성부 번호({item.Voice})가 올바르지 않습니다.");
                 }
             }
         }

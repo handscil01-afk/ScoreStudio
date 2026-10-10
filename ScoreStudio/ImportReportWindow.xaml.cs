@@ -1,0 +1,40 @@
+using System.Windows;
+using ScoreStudio.Import;
+
+namespace ScoreStudio;
+
+/// <summary>Shows what an import brought in and everything it skipped, so nothing is dropped silently.</summary>
+public partial class ImportReportWindow : Window
+{
+    private readonly ImportResult _result;
+
+    public ImportReportWindow(string fileName, ImportResult result)
+    {
+        InitializeComponent();
+        _result = result;
+
+        var summary = result.Summary;
+        FileText.Text = $"가져오기 완료: {fileName}";
+        SummaryText.Text = $"파트 {summary.Parts}개 · 마디 {summary.Measures}개 · 음표 {summary.Notes}개 · 쉼표 {summary.Rests}개 · 가사 {summary.Lyrics}개";
+        WarningHeader.Text = result.Warnings.Count == 0
+            ? "경고 없음: 이 파일의 모든 요소를 가져왔습니다."
+            : $"경고 {result.Warnings.Count}종류 (총 {result.Warnings.Sum(w => w.Count)}개)";
+        WarningList.ItemsSource = result.Warnings;
+        WarningList.Visibility = result.Warnings.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void Copy_Click(object sender, RoutedEventArgs e)
+    {
+        var lines = _result.Warnings.Select(w => $"{w.Message}\t{w.Count}\t{w.FirstLocation}");
+        try
+        {
+            Clipboard.SetText(string.Join(Environment.NewLine, new[] { FileText.Text, SummaryText.Text }.Concat(lines)));
+        }
+        catch (System.Runtime.InteropServices.ExternalException)
+        {
+            // Another program is holding the clipboard; copying is a convenience, so ignore it.
+        }
+    }
+
+    private void Close_Click(object sender, RoutedEventArgs e) => Close();
+}

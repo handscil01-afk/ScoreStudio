@@ -21,5 +21,6 @@
   <!-- Ship the sample projects so a downloaded build can be checked right away. -->
   <ItemGroup>
     <Content Include="..\samples\*.scoreproj" Link="samples\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\samples\musicxml\*.musicxml" Link="samples\musicxml\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -3,6 +3,7 @@ using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using ScoreStudio.Import;
 using ScoreStudio.Layout;
 using ScoreStudio.Rendering;
 using ScoreStudio.Services;
@@ -63,6 +64,48 @@ public sealed class PageRenderingTests
         return count;
     }
 
+    private static string PreviewDirectory()
+    {
+        var directory = Environment.GetEnvironmentVariable("SCORESTUDIO_PREVIEW_DIR") ?? Path.Combine(AppContext.BaseDirectory, "preview");
+        Directory.CreateDirectory(directory);
+        return directory;
+    }
+
+    private static void SavePng(BitmapSource bitmap, string fileName)
+    {
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var stream = File.Create(Path.Combine(PreviewDirectory(), fileName));
+        encoder.Save(stream);
+    }
+
+    [Theory]
+    [InlineData("simple-melody")]
+    [InlineData("piano-grand-staff")]
+    [InlineData("unsupported-features")]
+    public void ImportedMusicXml_RendersWithItsClefs(string sample)
+    {
+        RunSta(() =>
+        {
+            var project = MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", sample + ".musicxml")).Project;
+            var page = ScoreLayoutEngine.Layout(project).Pages[0];
+            var (pixels, width, height, bitmap) = Render(page);
+
+            // Same check as for the sample project: the clef area must hold far more ink than staff lines alone.
+            var system = page.Systems[0];
+            foreach (var staff in system.Staves)
+            {
+                var clefLeft = system.Left + 1.75;
+                var emptyLeft = system.Measures[^1].Left + 5;
+                var clefInk = DarkPixels(pixels, width, height, clefLeft, staff.Top - 3, clefLeft + 4.5, staff.Top + 10);
+                var emptyInk = DarkPixels(pixels, width, height, emptyLeft, staff.Top - 3, emptyLeft + 4.5, staff.Top + 10);
+                Assert.True(clefInk > emptyInk * 2, $"{sample}, staff {staff.StaffIndex + 1}: clef ink {clefInk}, empty staff ink {emptyInk}");
+            }
+
+            SavePng(bitmap, $"preview-musicxml-{sample}.png");
+        });
+    }
+
     [Fact]
     public void MusicFont_IsBravuraFromTheFontsFolder()
     {
@@ -79,9 +122,6 @@ public sealed class PageRenderingTests
         RunSta(() =>
         {
             var layout = SampleLayout();
-            var outputDirectory = Environment.GetEnvironmentVariable("SCORESTUDIO_PREVIEW_DIR")
-                ?? Path.Combine(AppContext.BaseDirectory, "preview");
-            Directory.CreateDirectory(outputDirectory);
 
             foreach (var page in layout.Pages)
             {
@@ -99,10 +139,7 @@ public sealed class PageRenderingTests
                     Assert.True(clefInk > emptyInk * 2, $"page {page.Number}: clef ink {clefInk}, empty staff ink {emptyInk}");
                 }
 
-                var encoder = new PngBitmapEncoder();
-                encoder.Frames.Add(BitmapFrame.Create(bitmap));
-                using var stream = File.Create(Path.Combine(outputDirectory, $"preview-page-{page.Number}.png"));
-                encoder.Save(stream);
+                SavePng(bitmap, $"preview-page-{page.Number}.png");
             }
         });
     }

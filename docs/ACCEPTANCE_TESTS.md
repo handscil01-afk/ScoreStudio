@@ -22,6 +22,9 @@
 ## 악보 화면 (Sprint 2)
 `docs/SPRINT2_SCORE_VIEW.md`의 "수용 기준"을 따른다.
 
+## MusicXML 가져오기 (Sprint 3)
+`docs/SPRINT3_MUSICXML.md`의 "수용 기준"을 따른다.
+
 ## MUSX 가져오기(향후)
 1. 원본 파일을 백업한다.
 2. 변환 전 원본의 파트 수, 마디 수, 제목, 가사 유무를 기록한다.

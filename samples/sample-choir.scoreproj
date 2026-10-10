@@ -1,5 +1,5 @@
 {
-  "SchemaVersion": 2,
+  "SchemaVersion": 3,
   "Title": "샘플 합창곡",
   "Composer": "ScoreStudio 테스트",
   "PageSize": "A4",
@@ -22,6 +22,7 @@
           "Number": 1,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": [
             {
               "Kind": "Note",
@@ -31,7 +32,9 @@
               "PositionNumerator": 0,
               "PositionDenominator": 1,
               "NotationSpelling": "C5",
-              "Lyric": "주"
+              "Lyric": "주",
+              "Staff": 0,
+              "Voice": 1
             },
             {
               "Kind": "Note",
@@ -41,7 +44,9 @@
               "PositionNumerator": 1,
               "PositionDenominator": 1,
               "NotationSpelling": "D5",
-              "Lyric": "님"
+              "Lyric": "님",
+              "Staff": 0,
+              "Voice": 1
             },
             {
               "Kind": "Note",
@@ -51,7 +56,9 @@
               "PositionNumerator": 3,
               "PositionDenominator": 2,
               "NotationSpelling": "Eb5",
-              "Lyric": null
+              "Lyric": null,
+              "Staff": 0,
+              "Voice": 1
             },
             {
               "Kind": "Rest",
@@ -61,7 +68,9 @@
               "PositionNumerator": 2,
               "PositionDenominator": 1,
               "NotationSpelling": null,
-              "Lyric": null
+              "Lyric": null,
+              "Staff": 0,
+              "Voice": 1
             }
           ]
         },
@@ -69,186 +78,217 @@
           "Number": 2,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 3,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 4,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 5,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 6,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 7,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 8,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 9,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 10,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 11,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 12,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 13,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 14,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 15,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 16,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 17,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 18,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 19,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 20,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 21,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 22,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 23,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 24,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 25,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 26,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 27,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 28,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 29,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 30,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 31,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 32,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         }
       ]
@@ -270,6 +310,7 @@
           "Number": 1,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": [
             {
               "Kind": "Note",
@@ -279,7 +320,9 @@
               "PositionNumerator": 0,
               "PositionDenominator": 1,
               "NotationSpelling": "C3",
-              "Lyric": null
+              "Lyric": null,
+              "Staff": 1,
+              "Voice": 1
             }
           ]
         },
@@ -287,186 +330,217 @@
           "Number": 2,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 3,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 4,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 5,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 6,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 7,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 8,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 9,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 10,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 11,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 12,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 13,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 14,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 15,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 16,
           "Numerator": 3,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 17,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 18,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 19,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 20,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 21,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 22,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 23,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 24,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 25,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 26,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 27,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 28,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 29,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 30,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 31,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         },
         {
           "Number": 32,
           "Numerator": 4,
           "Denominator": 4,
+          "KeyFifths": 0,
           "Events": []
         }
       ]

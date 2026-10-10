@@ -7,7 +7,7 @@ namespace ScoreStudio.Models;
 public sealed class ScoreProject
 {
     /// <summary>The project file schema version this build reads and writes.</summary>
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string Title { get; set; } = "새 악보";
@@ -66,6 +66,10 @@ public sealed class ScoreMeasure
     public int Number { get; set; } = 1;
     public int Numerator { get; set; } = 4;
     public int Denominator { get; set; } = 4;
+
+    /// <summary>Key signature as a position on the circle of fifths: −7 (seven flats) to 7 (seven sharps).</summary>
+    public int KeyFifths { get; set; }
+
     public List<ScoreEvent> Events { get; set; } = new();
 }
 
@@ -83,4 +87,10 @@ public sealed class ScoreEvent
     public int PositionDenominator { get; set; } = 1;
     public string? NotationSpelling { get; set; }
     public string? Lyric { get; set; }
+
+    /// <summary>Index into the part's staves, starting at 0.</summary>
+    public int Staff { get; set; }
+
+    /// <summary>Voice number within the part, starting at 1.</summary>
+    public int Voice { get; set; } = 1;
 }

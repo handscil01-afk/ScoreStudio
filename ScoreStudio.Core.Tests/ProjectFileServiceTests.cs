@@ -148,6 +148,17 @@ public sealed class ProjectFileServiceTests : IDisposable
     }
 
     [Fact]
+    public void Load_Version2File_GetsDefaultKeyStaffAndVoice()
+    {
+        var project = ProjectFileService.Parse("""
+            { "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": "Treble" } ], "Measures": [ { "Events": [ { "Kind": "Note" } ] } ] } ] }
+            """);
+
+        var measure = project.Parts[0].Measures[0];
+        Assert.Equal((0, 0, 1), (measure.KeyFifths, measure.Events[0].Staff, measure.Events[0].Voice));
+    }
+
+    [Fact]
     public void SaveThenLoad_PreservesStavesAndClefs()
     {
         var project = ScoreProject.CreateNew();
@@ -217,6 +228,9 @@ public sealed class ProjectFileServiceTests : IDisposable
         { """{ "SchemaVersion": 1, "Parts": [ { "Measures": [ { "Events": [ { "PositionNumerator": -1 } ] } ] } ] }""", "음표/쉼표 위치" },
         { """{ "SchemaVersion": 1, "Parts": [ { "Measures": [ { "Events": [ { "MidiPitch": 200 } ] } ] } ] }""", "음높이(200)" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ null ] } ] }""", "1번째 보표 데이터가 비어 있습니다" },
+        { """{ "SchemaVersion": 3, "Parts": [ { "Measures": [ { "KeyFifths": 8 } ] } ] }""", "조표(8)" },
+        { """{ "SchemaVersion": 3, "Parts": [ { "Measures": [ { "Events": [ { "Staff": 1 } ] } ] } ] }""", "없는 보표(2번째)" },
+        { """{ "SchemaVersion": 3, "Parts": [ { "Measures": [ { "Events": [ { "Voice": 0 } ] } ] } ] }""", "성부 번호(0)" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": "Percussion" } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": 7 } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
     };

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<!-- ScoreStudio sample: symbols that ScoreStudio does not import yet, to check the import warnings. -->
+<score-partwise version="4.0">
+  <work><work-title>경고 확인용 악보</work-title></work>
+  <part-list>
+    <score-part id="P1"><part-name>플루트</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <barline location="left"><repeat direction="forward"/></barline>
+      <direction placement="below"><direction-type><dynamics><p/></dynamics></direction-type></direction>
+      <harmony><root><root-step>C</root-step></root><kind>major</kind></harmony>
+      <note><grace/><pitch><step>D</step><octave>5</octave></pitch><voice>1</voice><type>eighth</type></note>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>2</duration><tie type="start"/><voice>1</voice><type>half</type>
+        <notations><tied type="start"/><slur type="start" number="1"/></notations>
+        <lyric number="1"><syllabic>begin</syllabic><text>노</text></lyric>
+        <lyric number="2"><syllabic>single</syllabic><text>둘</text></lyric></note>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><tie type="stop"/><voice>1</voice><type>quarter</type>
+        <notations><tied type="stop"/><articulations><staccato/></articulations></notations></note>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type>
+        <notations><slur type="stop" number="1"/><fermata/></notations>
+        <lyric number="1"><syllabic>end</syllabic><text>래</text></lyric></note>
+    </measure>
+    <measure number="2">
+      <attributes><clef><sign>F</sign><line>4</line></clef></attributes>
+      <note><pitch><step>G</step><octave>3</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type></note>
+      <barline location="right"><bar-style>light-heavy</bar-style><repeat direction="backward"/></barline>
+    </measure>
+  </part>
+</score-partwise>

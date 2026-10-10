@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
+using ScoreStudio.Import;
 using ScoreStudio.Layout;
 using ScoreStudio.Models;
 using ScoreStudio.Rendering;
@@ -56,6 +57,35 @@ public partial class MainWindow : Window
             ShowFileError("프로젝트를 열 수 없습니다.", "열기 오류", ex);
             StatusText.Content = "열기 실패: 현재 악보는 그대로 유지됩니다.";
         }
+    }
+
+    private void ImportMusicXml_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "MusicXML (*.musicxml;*.xml;*.mxl)|*.musicxml;*.xml;*.mxl|모든 파일 (*.*)|*.*",
+            Title = "MusicXML 가져오기"
+        };
+
+        if (dialog.ShowDialog() != true) return;
+
+        ImportResult result;
+        try
+        {
+            result = MusicXmlImporter.ImportFile(dialog.FileName);
+        }
+        catch (Exception ex)
+        {
+            ShowFileError("MusicXML을 가져올 수 없습니다.", "가져오기 오류", ex);
+            StatusText.Content = "가져오기 실패: 현재 악보는 그대로 유지됩니다.";
+            return;
+        }
+
+        _project = result.Project;
+        ApplyProjectToUi();
+        var fileName = System.IO.Path.GetFileName(dialog.FileName);
+        StatusText.Content = $"가져오기 완료: {fileName} (경고 {result.Warnings.Count}종류) · 보관하려면 저장하세요.";
+        new ImportReportWindow(fileName, result) { Owner = this }.ShowDialog();
     }
 
     private void SaveProject_Click(object sender, RoutedEventArgs e)
@@ -125,6 +155,9 @@ public partial class MainWindow : Window
         RefreshTitle();
         RefreshParts();
         RefreshScore();
+        ImportStatusText.Text = string.IsNullOrWhiteSpace(_project.ImportedFrom)
+            ? "MusicXML 가져오기 지원 · MUSX 미구현"
+            : $"가져온 원본: {System.IO.Path.GetFileName(_project.ImportedFrom)}";
     }
 
     /// <summary>Lays the score out again and replaces the pages on screen.</summary>
@@ -149,7 +182,7 @@ public partial class MainWindow : Window
         var measureCount = _project.Parts.Count == 0 ? 0 : _project.Parts.Max(p => p.Measures.Count);
         ScoreInfoText.Content = MusicFont.Typeface is null
             ? $"악보 기호 글꼴({MusicFont.FileName})을 불러오지 못해 기호를 표시할 수 없습니다."
-            : $"{layout.Pages.Count}쪽 · {measureCount}마디 · 음표는 아직 표시하지 않음";
+            : $"{layout.Pages.Count}쪽 · {measureCount}마디 · 음표 {_project.Parts.SelectMany(p => p.Measures).Sum(m => m.Events.Count(ev => ev.Kind == "Note"))}개(아직 화면에 표시하지 않음)";
     }
 
     private void SetZoom(double zoom)
@@ -257,7 +290,7 @@ public partial class MainWindow : Window
     private void About_Click(object sender, RoutedEventArgs e)
     {
         MessageBox.Show(this,
-            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·박자표·마디선, 여러 페이지, 확대/축소)\n아직 지원하지 않음: 음표 표시·입력, 조표, MusicXML/MUSX 가져오기, PDF 출력",
+            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·박자표·마디선, 여러 페이지, 확대/축소), MusicXML 가져오기(음표·쉼표·가사·조표 데이터)\n아직 지원하지 않음: 음표·조표 화면 표시, 음표 입력, MUSX 변환, PDF 출력",
             "개발 상태", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 

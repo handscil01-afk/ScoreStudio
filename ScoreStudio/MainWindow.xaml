@@ -11,7 +11,7 @@
                 <MenuItem Header="프로젝트 열기..." Click="OpenProject_Click"/>
                 <MenuItem Header="프로젝트 저장..." Click="SaveProject_Click"/>
                 <Separator/>
-                <MenuItem Header="MusicXML 가져오기..." IsEnabled="False" ToolTip="다음 개발 단계에서 구현합니다."/>
+                <MenuItem Header="MusicXML 가져오기..." Click="ImportMusicXml_Click"/>
                 <MenuItem Header="PDF 내보내기..." IsEnabled="False" ToolTip="다음 개발 단계에서 구현합니다."/>
             </MenuItem>
             <MenuItem Header="_편집">
@@ -28,6 +28,7 @@
                 <Button Content="새 악보" Click="NewScore_Click" Padding="10,4"/>
                 <Button Content="열기" Click="OpenProject_Click" Padding="10,4"/>
                 <Button Content="저장" Click="SaveProject_Click" Padding="10,4"/>
+                <Button Content="가져오기" Click="ImportMusicXml_Click" Padding="10,4" ToolTip="MusicXML(.musicxml, .xml, .mxl) 가져오기"/>
                 <Separator/>
                 <Button Content="−" Click="ZoomOut_Click" Padding="10,4" ToolTip="축소 (Ctrl+-)"/>
                 <ComboBox x:Name="ZoomInput" Width="80" SelectionChanged="ZoomInput_SelectionChanged" ToolTip="배율 (Ctrl+0: 100%)">
@@ -68,7 +69,7 @@
                     <TextBlock Text="파트" FontWeight="SemiBold"/>
                     <TextBlock x:Name="SidebarParts" Text="파트 1" TextWrapping="Wrap" Margin="0,4,0,12"/>
                     <TextBlock Text="가져오기 상태" FontWeight="SemiBold"/>
-                    <TextBlock Text="MusicXML / MUSX 미구현" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="#805A20"/>
+                    <TextBlock x:Name="ImportStatusText" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="#805A20"/>
                 </StackPanel>
             </Border>
 
@@ -95,7 +96,7 @@
                     </ComboBox>
                     <TextBlock Text="개발 메모" FontWeight="SemiBold"/>
                     <TextBlock TextWrapping="Wrap" Foreground="#697586" Margin="0,4,0,0"
-                               Text="악보 화면은 오선, 음자리표, 박자표, 마디선까지 표시합니다. 음표 표시·입력, 조표, PDF 출력은 아직 지원하지 않습니다."/>
+                               Text="악보 화면은 오선, 음자리표, 박자표, 마디선까지 표시합니다. MusicXML에서 가져온 음표·가사·조표는 저장되지만 아직 화면에 표시하지 않습니다. 음표 입력, MUSX 변환, PDF 출력은 아직 지원하지 않습니다."/>
                 </StackPanel>
             </Border>
         </Grid>
