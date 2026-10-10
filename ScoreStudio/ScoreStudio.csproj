@@ -11,4 +11,10 @@
   <ItemGroup>
     <ProjectReference Include="..\ScoreStudio.Core\ScoreStudio.Core.csproj" />
   </ItemGroup>
+
+  <!-- Bravura is read from the Fonts folder next to the executable (see docs/THIRD_PARTY.md). -->
+  <ItemGroup>
+    <Content Include="Fonts\Bravura.otf" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Fonts\Bravura-OFL.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

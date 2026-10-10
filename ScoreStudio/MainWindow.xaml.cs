@@ -1,7 +1,12 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using Microsoft.Win32;
+using ScoreStudio.Layout;
 using ScoreStudio.Models;
+using ScoreStudio.Rendering;
 using ScoreStudio.Services;
 
 namespace ScoreStudio;
@@ -11,44 +16,15 @@ public partial class MainWindow : Window
     private ScoreProject _project = ScoreProject.CreateNew();
     private bool _updatingUi;
 
+    private static readonly double[] ZoomLevels = { 0.5, 0.75, 1, 1.25, 1.5, 2, 3 };
+
+    private double _zoom = 1;
+
     public MainWindow()
     {
         InitializeComponent();
-        RenderStaffPlaceholder();
+        SetZoom(1);
         ApplyProjectToUi();
-    }
-
-    private void RenderStaffPlaceholder()
-    {
-        ScoreCanvas.Children.Clear();
-        const double left = 12;
-        const double right = 575;
-        const double top = 80;
-        const double gap = 10;
-
-        for (int line = 0; line < 5; line++)
-        {
-            var shape = new System.Windows.Shapes.Line
-            {
-                X1 = left,
-                X2 = right,
-                Y1 = top + line * gap,
-                Y2 = top + line * gap,
-                Stroke = System.Windows.Media.Brushes.Black,
-                StrokeThickness = 1
-            };
-            ScoreCanvas.Children.Add(shape);
-        }
-
-        var notice = new TextBlock
-        {
-            Text = "오선 미리보기 — 채보 기능은 개발 예정",
-            FontSize = 12,
-            Foreground = System.Windows.Media.Brushes.Gray
-        };
-        Canvas.SetLeft(notice, left);
-        Canvas.SetTop(notice, top + 70);
-        ScoreCanvas.Children.Add(notice);
     }
 
     private void NewScore_Click(object sender, RoutedEventArgs e)
@@ -113,6 +89,7 @@ public partial class MainWindow : Window
         if (_project is null || _updatingUi) return;
         _project.Title = TitleInput.Text;
         RefreshTitle();
+        RefreshScore();
     }
 
     private void PageSizeInput_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -123,6 +100,7 @@ public partial class MainWindow : Window
         var values = tag.Split('|');
         _project.PageSize = values[0];
         _project.Orientation = values[1];
+        RefreshScore();
     }
 
     /// <summary>Shows every value of the current project in the window.</summary>
@@ -146,6 +124,98 @@ public partial class MainWindow : Window
 
         RefreshTitle();
         RefreshParts();
+        RefreshScore();
+    }
+
+    /// <summary>Lays the score out again and replaces the pages on screen.</summary>
+    private void RefreshScore()
+    {
+        if (PagesPanel is null) return;
+
+        var layout = ScoreLayoutEngine.Layout(_project);
+        PagesPanel.Children.Clear();
+        foreach (var page in layout.Pages)
+        {
+            PagesPanel.Children.Add(new Border
+            {
+                Child = new PageView(page),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0xCC, 0xD2, 0xD9)),
+                BorderThickness = new Thickness(1),
+                Margin = new Thickness(0, 0, 0, 24),
+                SnapsToDevicePixels = true,
+            });
+        }
+
+        var measureCount = _project.Parts.Count == 0 ? 0 : _project.Parts.Max(p => p.Measures.Count);
+        ScoreInfoText.Content = MusicFont.Typeface is null
+            ? $"악보 기호 글꼴({MusicFont.FileName})을 불러오지 못해 기호를 표시할 수 없습니다."
+            : $"{layout.Pages.Count}쪽 · {measureCount}마디 · 음표는 아직 표시하지 않음";
+    }
+
+    private void SetZoom(double zoom)
+    {
+        _zoom = Math.Clamp(zoom, ZoomLevels[0], ZoomLevels[^1]);
+        ZoomTransform.ScaleX = _zoom;
+        ZoomTransform.ScaleY = _zoom;
+
+        _updatingUi = true;
+        try
+        {
+            ZoomInput.SelectedItem = ZoomInput.Items.OfType<ComboBoxItem>()
+                .FirstOrDefault(item => Math.Abs(ParseZoomTag(item) - _zoom) < 0.001);
+        }
+        finally
+        {
+            _updatingUi = false;
+        }
+    }
+
+    private void StepZoom(int direction)
+    {
+        var next = direction > 0
+            ? ZoomLevels.FirstOrDefault(level => level > _zoom + 0.001, ZoomLevels[^1])
+            : ZoomLevels.LastOrDefault(level => level < _zoom - 0.001, ZoomLevels[0]);
+        SetZoom(next);
+    }
+
+    private static double ParseZoomTag(ComboBoxItem item) =>
+        double.Parse((string)item.Tag, CultureInfo.InvariantCulture);
+
+    private void ZoomIn_Click(object sender, RoutedEventArgs e) => StepZoom(+1);
+
+    private void ZoomOut_Click(object sender, RoutedEventArgs e) => StepZoom(-1);
+
+    private void ZoomInput_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_updatingUi || ZoomInput.SelectedItem is not ComboBoxItem item) return;
+        SetZoom(ParseZoomTag(item));
+    }
+
+    private void ScoreScroll_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
+        StepZoom(e.Delta > 0 ? +1 : -1);
+        e.Handled = true;
+    }
+
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
+        switch (e.Key)
+        {
+            case Key.OemPlus or Key.Add:
+                StepZoom(+1);
+                e.Handled = true;
+                break;
+            case Key.OemMinus or Key.Subtract:
+                StepZoom(-1);
+                e.Handled = true;
+                break;
+            case Key.D0 or Key.NumPad0:
+                SetZoom(1);
+                e.Handled = true;
+                break;
+        }
     }
 
     private void RefreshParts()
@@ -153,7 +223,21 @@ public partial class MainWindow : Window
         SidebarParts.Text = _project.Parts.Count == 0
             ? "파트 없음"
             : string.Join("\n", _project.Parts.Select((part, index) =>
-                $"{index + 1}. {(string.IsNullOrWhiteSpace(part.Name) ? "(이름 없음)" : part.Name)} · {part.Measures.Count}마디"));
+                $"{index + 1}. {(string.IsNullOrWhiteSpace(part.Name) ? "(이름 없음)" : part.Name)} · {DescribeStaves(part)} · {part.Measures.Count}마디"));
+    }
+
+    private static string DescribeStaves(ScorePart part)
+    {
+        var clefs = string.Join("/", part.Staves.Select(staff => staff.Clef switch
+        {
+            ClefType.Treble => "높은음",
+            ClefType.Treble8vb => "높은음 8vb",
+            ClefType.Bass => "낮은음",
+            ClefType.Alto => "알토",
+            ClefType.Tenor => "테너",
+            _ => staff.Clef.ToString(),
+        }));
+        return part.Staves.Count > 1 ? $"{part.Staves.Count}단({clefs})" : $"{clefs}자리표";
     }
 
     private void ShowFileError(string headline, string caption, Exception ex)
@@ -166,7 +250,6 @@ public partial class MainWindow : Window
 
     private void RefreshTitle()
     {
-        if (ScoreTitle is not null) ScoreTitle.Text = string.IsNullOrWhiteSpace(_project.Title) ? "제목 없는 악보" : _project.Title;
         if (SidebarTitle is not null) SidebarTitle.Text = _project.Title;
         if (TitleInput is not null && Title != null) Title = $"{_project.Title} — ScoreStudio";
     }
@@ -174,7 +257,7 @@ public partial class MainWindow : Window
     private void About_Click(object sender, RoutedEventArgs e)
     {
         MessageBox.Show(this,
-            "ScoreStudio 초기 개발 킷\n\n현재는 WPF 화면 뼈대와 자체 프로젝트 JSON 저장/열기를 포함합니다.\nMUSX 가져오기, 음표 편집, PDF 출력은 아직 구현되지 않았습니다.",
+            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·박자표·마디선, 여러 페이지, 확대/축소)\n아직 지원하지 않음: 음표 표시·입력, 조표, MusicXML/MUSX 가져오기, PDF 출력",
             "개발 상태", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 

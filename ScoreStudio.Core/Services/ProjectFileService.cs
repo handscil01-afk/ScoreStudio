@@ -11,7 +11,7 @@ public static class ProjectFileService
     {
         WriteIndented = true,
         PropertyNameCaseInsensitive = true,
-        Converters = { new JsonStringEnumConverter() }
+        Converters = { new JsonStringEnumConverter(allowIntegerValues: false) }
     };
 
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
@@ -128,6 +128,8 @@ public static class ProjectFileService
 
         if (version < 1)
             throw new ProjectFileException($"지원하지 않는 프로젝트 버전입니다: {version}");
+
+        // Version 1 files have no staves; Validate fills them in. Saving always writes the current version.
     }
 
     /// <summary>Fills in missing optional values and rejects data that would break later code.</summary>
@@ -147,6 +149,16 @@ public static class ProjectFileService
             part.Name ??= "";
             part.Instrument ??= "Unknown";
             part.Measures ??= new List<ScoreMeasure>();
+
+            if (part.Staves is null || part.Staves.Count == 0)
+                part.Staves = new List<ScoreStaff> { new() };
+            for (var s = 0; s < part.Staves.Count; s++)
+            {
+                var staff = part.Staves[s]
+                    ?? throw Corrupt($"{p + 1}번째 파트의 {s + 1}번째 보표 데이터가 비어 있습니다.");
+                if (!Enum.IsDefined(staff.Clef))
+                    throw Corrupt($"{p + 1}번째 파트의 {s + 1}번째 보표에 알 수 없는 음자리표가 있습니다.");
+            }
 
             for (var m = 0; m < part.Measures.Count; m++)
             {

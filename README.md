@@ -4,13 +4,13 @@ Windows용 사보 프로그램의 첫 번째 개발 기반입니다. 목표는 `
 
 ## 현재 포함된 것
 - .NET 8 / WPF 프로젝트 뼈대
-- 악보 작업 화면의 기본 레이아웃
-- 프로젝트 모델 초안
+- 자체 프로젝트 파일(`.scoreproj`, 스키마 버전 2) 저장/열기와 손상 파일 오류 안내
+- 악보 화면: 페이지·시스템·보표 구조, 오선, 음자리표, 박자표, 마디선, 확대/축소
 - `CLAUDE.md` 개발 지침
 - 단계별 로드맵 및 수동 테스트 기준
 
 ## 현재 포함되지 않은 것
-- 완성된 악보 렌더러
+- 음표·쉼표·가사 표시 (악보 화면은 오선, 음자리표, 박자표, 마디선까지 표시)
 - 실제 `.musx` 변환기 연결
 - MusicXML 파서/내보내기
 - PDF 출력
@@ -22,8 +22,10 @@ Windows용 사보 프로그램의 첫 번째 개발 기반입니다. 목표는 `
 | 폴더 | 내용 |
 |---|---|
 | `ScoreStudio/` | WPF 앱(화면). Windows에서만 빌드된다. |
-| `ScoreStudio.Core/` | 악보 데이터 모델과 `.scoreproj` 저장/열기. 화면 코드와 분리되어 있다. |
-| `ScoreStudio.Core.Tests/` | 저장/재열기, 잘못된 파일 처리 자동 테스트(xUnit). |
+| `ScoreStudio.Core/` | 악보 데이터 모델, `.scoreproj` 저장/열기, 레이아웃 엔진(`Layout/`). 화면 코드와 분리되어 있다. |
+| `ScoreStudio.Core.Tests/` | 저장/재열기, 잘못된 파일 처리, 레이아웃 자동 테스트(xUnit). Windows가 아니어도 실행된다. |
+| `ScoreStudio.Tests/` | 실제 WPF 렌더러로 샘플 악보를 그려 검사하고 PNG 미리보기를 만드는 테스트. Windows 전용. |
+| `ScoreStudio/Fonts/` | 음악 기호 글꼴 Bravura와 라이선스(`docs/THIRD_PARTY.md`). |
 | `samples/` | 테스트용 샘플 프로젝트 파일. |
 | `.github/workflows/build.yml` | GitHub Actions의 Windows 실행기에서 빌드·테스트하고 실행 파일을 올린다. |
 

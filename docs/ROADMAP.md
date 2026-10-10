@@ -13,6 +13,7 @@
 - [x] 저장/재열기 테스트 (`ScoreStudio.Core.Tests`)
 
 ## Sprint 2 — 악보 뷰어
+설계와 수용 기준: `docs/SPRINT2_SCORE_VIEW.md`
 - [ ] 오선 및 음자리표 표시
 - [ ] 한 페이지 이상 표시
 - [ ] 확대/축소

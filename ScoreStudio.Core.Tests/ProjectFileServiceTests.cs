@@ -113,7 +113,7 @@ public sealed class ProjectFileServiceTests : IDisposable
 
         var bytes = File.ReadAllBytes(path);
         Assert.False(bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF);
-        Assert.Contains("\"SchemaVersion\": 1", File.ReadAllText(path));
+        Assert.Contains($"\"SchemaVersion\": {ScoreProject.CurrentSchemaVersion}", File.ReadAllText(path));
     }
 
     [Fact]
@@ -128,6 +128,54 @@ public sealed class ProjectFileServiceTests : IDisposable
         Assert.Equal(4, project.Parts[0].Measures[0].Events.Count);
         Assert.Equal("Rest", project.Parts[0].Measures[0].Events[3].Kind);
         Assert.Equal((3, 4), (project.Parts[1].Measures[0].Numerator, project.Parts[1].Measures[0].Denominator));
+        Assert.Equal(new[] { ClefType.Treble, ClefType.Bass }, project.Parts[1].Staves.Select(s => s.Clef));
+        Assert.Equal(32, project.Parts[0].Measures.Count);
+    }
+
+    [Fact]
+    public void Load_Version1File_GetsOneTrebleStaffPerPart_AndSavesAsCurrentVersion()
+    {
+        var project = ProjectFileService.Parse("""
+            { "SchemaVersion": 1, "Title": "옛 파일", "Parts": [ { "Name": "A" }, { "Name": "B", "Measures": [ { "Number": 1 } ] } ] }
+            """);
+
+        Assert.All(project.Parts, part => Assert.Equal(ClefType.Treble, Assert.Single(part.Staves).Clef));
+
+        var path = PathFor("upgraded.scoreproj");
+        ProjectFileService.Save(path, project);
+        Assert.Equal(ScoreProject.CurrentSchemaVersion, ProjectFileService.Load(path).SchemaVersion);
+        Assert.Contains("\"Clef\": \"Treble\"", File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void SaveThenLoad_PreservesStavesAndClefs()
+    {
+        var project = ScoreProject.CreateNew();
+        project.Parts.Add(new ScorePart
+        {
+            Name = "피아노",
+            Staves = new List<ScoreStaff> { new() { Clef = ClefType.Treble }, new() { Clef = ClefType.Bass } },
+        });
+        project.Parts[0].Staves = new List<ScoreStaff> { new() { Clef = ClefType.Treble8vb } };
+        project.Parts.Add(new ScorePart { Name = "비올라", Staves = new List<ScoreStaff> { new() { Clef = ClefType.Alto } } });
+        project.Parts.Add(new ScorePart { Name = "첼로", Staves = new List<ScoreStaff> { new() { Clef = ClefType.Tenor } } });
+        var path = PathFor("staves.scoreproj");
+
+        ProjectFileService.Save(path, project);
+        var loaded = ProjectFileService.Load(path);
+
+        Assert.Equal(
+            new[] { "Treble8vb", "Treble,Bass", "Alto", "Tenor" },
+            loaded.Parts.Select(p => string.Join(",", p.Staves.Select(s => s.Clef))));
+    }
+
+    [Fact]
+    public void CreateNew_HasFourEmptyMeasuresInFourFour()
+    {
+        var measures = ScoreProject.CreateNew().Parts.Single().Measures;
+
+        Assert.Equal(new[] { 1, 2, 3, 4 }, measures.Select(m => m.Number));
+        Assert.All(measures, m => Assert.Equal((4, 4, 0), (m.Numerator, m.Denominator, m.Events.Count)));
     }
 
     [Fact]
@@ -168,6 +216,9 @@ public sealed class ProjectFileServiceTests : IDisposable
         { """{ "SchemaVersion": 1, "Parts": [ { "Measures": [ { "Events": [ { "DurationDenominator": 0 } ] } ] } ] }""", "음표/쉼표 길이" },
         { """{ "SchemaVersion": 1, "Parts": [ { "Measures": [ { "Events": [ { "PositionNumerator": -1 } ] } ] } ] }""", "음표/쉼표 위치" },
         { """{ "SchemaVersion": 1, "Parts": [ { "Measures": [ { "Events": [ { "MidiPitch": 200 } ] } ] } ] }""", "음높이(200)" },
+        { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ null ] } ] }""", "1번째 보표 데이터가 비어 있습니다" },
+        { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": "Percussion" } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
+        { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": 7 } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
     };
 
     [Theory]

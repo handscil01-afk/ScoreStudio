@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScoreStudio", "ScoreStudio\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScoreStudio.Core", "ScoreStudio.Core\ScoreStudio.Core.csproj", "{1E4A35E2-097C-44CA-8BD9-D974C44B39D1}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScoreStudio.Tests", "ScoreStudio.Tests\ScoreStudio.Tests.csproj", "{7D3E9A42-1B5C-4E8F-A6D2-3C9B0E5F7A81}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ScoreStudio.Core.Tests", "ScoreStudio.Core.Tests\ScoreStudio.Core.Tests.csproj", "{0BBB926C-0F8A-4053-8510-2DBAFBE72FE1}"
 EndProject
 Global
@@ -18,6 +20,10 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7D3E9A42-1B5C-4E8F-A6D2-3C9B0E5F7A81}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7D3E9A42-1B5C-4E8F-A6D2-3C9B0E5F7A81}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7D3E9A42-1B5C-4E8F-A6D2-3C9B0E5F7A81}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7D3E9A42-1B5C-4E8F-A6D2-3C9B0E5F7A81}.Release|Any CPU.Build.0 = Release|Any CPU
 		{5B7C2E31-6A4D-4F0B-9C1E-2D8F3A7B4C60}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{5B7C2E31-6A4D-4F0B-9C1E-2D8F3A7B4C60}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5B7C2E31-6A4D-4F0B-9C1E-2D8F3A7B4C60}.Release|Any CPU.ActiveCfg = Release|Any CPU

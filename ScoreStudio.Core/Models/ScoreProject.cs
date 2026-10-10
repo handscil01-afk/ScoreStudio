@@ -7,7 +7,7 @@ namespace ScoreStudio.Models;
 public sealed class ScoreProject
 {
     /// <summary>The project file schema version this build reads and writes.</summary>
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string Title { get; set; } = "새 악보";
@@ -22,7 +22,14 @@ public sealed class ScoreProject
     public static ScoreProject CreateNew() => new()
     {
         Title = "새 악보",
-        Parts = new List<ScorePart> { new() { Name = "파트 1" } }
+        Parts = new List<ScorePart>
+        {
+            new()
+            {
+                Name = "파트 1",
+                Measures = Enumerable.Range(1, 4).Select(n => new ScoreMeasure { Number = n }).ToList()
+            }
+        }
     };
 }
 
@@ -31,7 +38,27 @@ public sealed class ScorePart
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "파트 1";
     public string Instrument { get; set; } = "Unknown";
+
+    /// <summary>Staves from top to bottom. A piano part has two; most parts have one.</summary>
+    public List<ScoreStaff> Staves { get; set; } = new() { new() };
+
     public List<ScoreMeasure> Measures { get; set; } = new();
+}
+
+public sealed class ScoreStaff
+{
+    public ClefType Clef { get; set; } = ClefType.Treble;
+}
+
+/// <summary>Stored in project files by name, so the numeric values may change freely.</summary>
+public enum ClefType
+{
+    Treble,
+    Bass,
+    Alto,
+    Tenor,
+    /// <summary>Treble clef sounding an octave lower, used for tenor voices and guitar.</summary>
+    Treble8vb,
 }
 
 public sealed class ScoreMeasure

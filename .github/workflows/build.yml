@@ -33,6 +33,9 @@ jobs:
 
       - name: Test
         run: dotnet test ScoreStudio.sln -c Release --no-build --logger "console;verbosity=normal"
+        env:
+          # ScoreStudio.Tests writes PNG previews of the sample score here.
+          SCORESTUDIO_PREVIEW_DIR: ${{ github.workspace }}/preview
 
       - name: Publish app
         run: dotnet publish ScoreStudio/ScoreStudio.csproj -c Release --no-restore -o publish
@@ -52,8 +55,8 @@ jobs:
         run: |
           (cd publish && 7z a -tzip ../ScoreStudio-win-x64.zip . > /dev/null)
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest ScoreStudio-win-x64.zip \
+          gh release create latest ScoreStudio-win-x64.zip preview/*.png \
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "최신 개발 빌드 (${GITHUB_SHA::7})" \
-            --notes "main 브랜치의 최신 자동 빌드입니다. 아직 개발 중인 버전이며, MusicXML·MUSX 가져오기, 음표 편집, PDF 출력은 구현되지 않았습니다. 실행하려면 .NET 8 Desktop Runtime이 필요합니다."
+            --notes "main 브랜치의 최신 자동 빌드입니다. 아직 개발 중인 버전이며, 음표 표시·입력, MusicXML·MUSX 가져오기, PDF 출력은 구현되지 않았습니다. 실행하려면 .NET 8 Desktop Runtime이 필요합니다. preview-page-N.png는 샘플 악보를 이 빌드의 WPF 렌더러로 그린 화면입니다."
