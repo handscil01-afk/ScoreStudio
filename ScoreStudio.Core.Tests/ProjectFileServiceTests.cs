@@ -34,12 +34,17 @@ public sealed class ProjectFileServiceTests : IDisposable
                 {
                     new()
                     {
-                        Number = 1, Numerator = 6, Denominator = 8,
+                        Number = 1, Numerator = 6, Denominator = 8, KeyFifths = -3, RepeatStart = true, RepeatEnd = true, RepeatTimes = 3,
+                        Volta = new ScoreVolta { Numbers = "1, 2", Text = "1.-2.", MeasureCount = 2, OpenEnd = true },
+                        ChordSymbols =
+                        {
+                            new() { RootStep = "B", RootAlter = -1, Kind = "major-seventh", BassStep = "D", Text = "Bbmaj7/D", PositionNumerator = 3, PositionDenominator = 2 },
+                        },
                         Events =
                         {
-                            new() { Kind = "Note", MidiPitch = 67, DurationNumerator = 3, DurationDenominator = 2, PositionNumerator = 0, PositionDenominator = 1, NotationSpelling = "G4", Lyric = "주" },
+                            new() { Kind = "Note", MidiPitch = 67, DurationNumerator = 3, DurationDenominator = 2, PositionNumerator = 0, PositionDenominator = 1, NotationSpelling = "G4", TieToNext = true, Lyrics = { new() { Verse = 1, Text = "주", Syllabic = LyricSyllabic.Begin }, new() { Verse = 2, Text = "나", Extend = true } } },
                             new() { Kind = "Rest", MidiPitch = 60, DurationNumerator = 1, DurationDenominator = 2, PositionNumerator = 3, PositionDenominator = 2 },
-                            new() { Kind = "Note", MidiPitch = 70, DurationNumerator = 1, DurationDenominator = 3, PositionNumerator = 2, PositionDenominator = 1, NotationSpelling = "Bb4", Lyric = "하" },
+                            new() { Kind = "Note", MidiPitch = 70, DurationNumerator = 1, DurationDenominator = 3, PositionNumerator = 2, PositionDenominator = 1, NotationSpelling = "Bb4", Lyrics = { new() { Verse = 1, Text = "하" } } },
                         }
                     },
                     new() { Number = 2, Numerator = 6, Denominator = 8 },
@@ -74,7 +79,7 @@ public sealed class ProjectFileServiceTests : IDisposable
         Assert.Equal(new[] { "소프라노", "피아노", "바이올린" }, loaded.Parts.Select(p => p.Name));
         var e = loaded.Parts[0].Measures[0].Events[2];
         Assert.Equal((70, 1, 3, 2, 1, "Bb4", "하"),
-            (e.MidiPitch, e.DurationNumerator, e.DurationDenominator, e.PositionNumerator, e.PositionDenominator, e.NotationSpelling, e.Lyric));
+            (e.MidiPitch, e.DurationNumerator, e.DurationDenominator, e.PositionNumerator, e.PositionDenominator, e.NotationSpelling, e.Lyrics.Single().Text));
     }
 
     [Fact]
@@ -145,6 +150,25 @@ public sealed class ProjectFileServiceTests : IDisposable
         ProjectFileService.Save(path, project);
         Assert.Equal(ScoreProject.CurrentSchemaVersion, ProjectFileService.Load(path).SchemaVersion);
         Assert.Contains("\"Clef\": \"Treble\"", File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void Load_Version3File_MovesTheSingleLyricIntoVerseOne_AndSavesWithoutIt()
+    {
+        var project = ProjectFileService.Parse("""
+            { "SchemaVersion": 3, "Parts": [ { "Measures": [ { "Events": [ { "Kind": "Note", "Lyric": "옛" }, { "Kind": "Note" } ] } ] } ] }
+            """);
+
+        var events = project.Parts[0].Measures[0].Events;
+        var lyric = Assert.Single(events[0].Lyrics);
+        Assert.Equal((1, "옛", LyricSyllabic.Single, false), (lyric.Verse, lyric.Text, lyric.Syllabic, lyric.Extend));
+        Assert.Empty(events[1].Lyrics);
+        Assert.Null(events[0].LegacyLyric);
+
+        var path = PathFor("v3.scoreproj");
+        ProjectFileService.Save(path, project);
+        Assert.DoesNotContain("\"Lyric\"", File.ReadAllText(path));
+        Assert.Equal("옛", ProjectFileService.Load(path).Parts[0].Measures[0].Events[0].Lyrics.Single().Text);
     }
 
     [Fact]
@@ -231,6 +255,13 @@ public sealed class ProjectFileServiceTests : IDisposable
         { """{ "SchemaVersion": 3, "Parts": [ { "Measures": [ { "KeyFifths": 8 } ] } ] }""", "조표(8)" },
         { """{ "SchemaVersion": 3, "Parts": [ { "Measures": [ { "Events": [ { "Staff": 1 } ] } ] } ] }""", "없는 보표(2번째)" },
         { """{ "SchemaVersion": 3, "Parts": [ { "Measures": [ { "Events": [ { "Voice": 0 } ] } ] } ] }""", "성부 번호(0)" },
+        { """{ "SchemaVersion": 4, "Parts": [ { "Measures": [ { "RepeatTimes": 1 } ] } ] }""", "반복 횟수(1)" },
+        { """{ "SchemaVersion": 4, "Parts": [ { "Measures": [ { "Volta": { "Numbers": "", "MeasureCount": 1 } } ] } ] }""", "볼타" },
+        { """{ "SchemaVersion": 4, "Parts": [ { "Measures": [ { "Volta": { "Numbers": "1", "MeasureCount": 0 } } ] } ] }""", "볼타" },
+        { """{ "SchemaVersion": 4, "Parts": [ { "Measures": [ { "ChordSymbols": [ { "RootStep": "H" } ] } ] } ] }""", "1번째 코드 이름" },
+        { """{ "SchemaVersion": 4, "Parts": [ { "Measures": [ { "ChordSymbols": [ null ] } ] } ] }""", "1번째 코드 이름 데이터가 비어 있습니다" },
+        { """{ "SchemaVersion": 4, "Parts": [ { "Measures": [ { "Events": [ { "Lyrics": [ { "Verse": 0, "Text": "가" } ] } ] } ] } ] }""", "가사 정보" },
+        { """{ "SchemaVersion": 4, "Parts": [ { "Measures": [ { "Events": [ { "Lyrics": [ { "Syllabic": "Hyphen" } ] } ] } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": "Percussion" } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": 7 } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
     };

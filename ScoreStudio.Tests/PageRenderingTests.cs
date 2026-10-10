@@ -83,6 +83,7 @@ public sealed class PageRenderingTests
     [InlineData("simple-melody")]
     [InlineData("piano-grand-staff")]
     [InlineData("unsupported-features")]
+    [InlineData("hymn-repeats-chords")]
     public void ImportedMusicXml_RendersWithItsClefs(string sample)
     {
         RunSta(() =>

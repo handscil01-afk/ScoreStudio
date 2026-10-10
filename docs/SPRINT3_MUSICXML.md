@@ -25,10 +25,14 @@
 | `chord` | 같은 위치의 음표(화음) |
 | `duration`, `backup`, `forward` | 길이·위치(4분음표 단위 분수, 잇단음표 포함) |
 | `staff`, `voice` | 보표 번호, 성부 번호 |
-| 첫 번째 `lyric`의 `text` | 가사 |
+| 모든 `lyric` (`number`별 절, `syllabic`, `extend`, 여러 `text`는 ‿로 연결) | 가사 (절, 음절 위치, 연장선) — 스키마 4 |
+| `tie type="start"`, `tied type="start"` | 다음 음으로 이어지는 붙임줄 — 스키마 4 |
+| `harmony` (`root`, `kind`와 `kind@text`, `bass`, `degree`, `offset`, `staff`) | 코드 이름 (구조화된 값과 표시 문자열, 예: `Bbmaj7/D`) — 스키마 4 |
+| `barline/repeat` (`forward`, `backward`, `times`) | 도돌이표 시작·끝, 반복 횟수 — 스키마 4 |
+| `barline/ending` (`start`, `stop`, `discontinue`) | 볼타: 번호, 표시 글자, 마디 수, 열린 끝 — 스키마 4 |
 
 ### 경고를 내고 가져오지 않는 것
-꾸밈음, 큐 음표, 타악기 음표(`unpitched`), 붙임줄, 이음줄, 잇단음표 괄호 표시, 아티큘레이션, 장식음, 페르마타, 셈여림, 빠르기·글자 지시, 크레셴도, 페달, 옥타브 기호, 반복 기호·도돌이표·볼타, 코드 이름, 숫자 저음, 두 번째 이후 가사 절, 가사 음절 연결 정보, 중간 음자리표 변경, 지원하지 않는 음자리표, 미분음.
+꾸밈음, 큐 음표, 타악기 음표(`unpitched`), 이음줄, 잇단음표 괄호 표시, 아티큘레이션, 장식음, 페르마타, 셈여림, 빠르기·글자 지시, 크레셴도, 페달, 옥타브 기호, 세뇨·코다, 로마 숫자 화성 기호, 코드 다이어그램, 숫자 저음, 울림 붙임줄(let ring), 중간 음자리표 변경, 지원하지 않는 음자리표, 미분음.
 - 경고는 종류별로 묶고 개수와 처음 나온 위치(파트·마디)를 보여 준다.
 
 ### 경고 없이 무시하는 것
@@ -89,3 +93,18 @@
 - 발견한 문제: Finale은 이름 없는 보표를 "MusicXML Part"로 내보내므로 모든 파트 이름과 경고 위치가 같게 보였다. → 인쇄용 이름(`part-name-display`)을 우선 쓰고, 임시 이름은 "파트 N"으로 바꾸며, 이름이 겹치면 경고 위치에 "N번째 파트"를 붙이도록 고쳤다.
 - `<dashes>`(cresc. - - -)에 한국어 경고 이름을 붙였다.
 - 이 악보들에서 많이 나온 요소는 붙임줄, 코드 이름, 두 번째 이후 가사 절, 도돌이표·볼타다. 다음 단계에서 데이터 모델에 넣을 우선순위가 높다.
+
+## 데이터 보존 확장 (스키마 버전 3 → 4)
+실제 Finale 파일에서 많이 나온 요소를 저장되도록 데이터 모델에 넣었다. 화면에는 아직 그리지 않는다.
+
+| 대상 | 추가 항목 | 설명 |
+|---|---|---|
+| `ScoreEvent` | `Lyrics: List<ScoreLyric>` | 절마다 하나: `Verse`(1부터), `Text`, `Syllabic`(Single/Begin/Middle/End, Begin·Middle 뒤에 하이픈), `Extend`(연장선) |
+| `ScoreEvent` | `TieToNext` | 다음 같은 음으로 이어지는 붙임줄 |
+| `ScoreMeasure` | `RepeatStart`, `RepeatEnd`, `RepeatTimes` | 도돌이표 시작·끝, 전체 연주 횟수(기본 2) |
+| `ScoreMeasure` | `Volta: ScoreVolta?` | 볼타가 시작하는 마디에만 둔다: `Numbers`("1", "1, 2"), `Text`("1."), `MeasureCount`, `OpenEnd` |
+| `ScoreMeasure` | `ChordSymbols: List<ScoreChordSymbol>` | 위치, 보표, `RootStep`/`RootAlter`, `Kind`(MusicXML 이름), `BassStep`/`BassAlter`, 표시 문자열 `Text` |
+
+- 버전 1~3 파일의 `Lyric`은 1절 가사로 옮기고, 저장할 때는 더 이상 쓰지 않는다.
+- 결과 창 요약에 가사 절 수, 붙임줄 수, 코드 이름 수를 추가했다.
+- 새 샘플 `samples/musicxml/hymn-repeats-chords.musicxml`: 2절 가사, 하이픈, 연장선, 붙임줄, 코드 이름 8개(분수 코드, sus4, N.C., add9, `kind@text`), 도돌이표, 1·2번 볼타. 경고 없이 모두 가져와야 한다.

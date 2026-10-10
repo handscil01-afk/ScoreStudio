@@ -15,7 +15,8 @@ public partial class ImportReportWindow : Window
 
         var summary = result.Summary;
         FileText.Text = $"가져오기 완료: {fileName}";
-        SummaryText.Text = $"파트 {summary.Parts}개 · 마디 {summary.Measures}개 · 음표 {summary.Notes}개 · 쉼표 {summary.Rests}개 · 가사 {summary.Lyrics}개";
+        SummaryText.Text = $"파트 {summary.Parts}개 · 마디 {summary.Measures}개 · 음표 {summary.Notes}개 · 쉼표 {summary.Rests}개\n"
+            + $"가사 {summary.Lyrics}개({summary.LyricVerses}절까지) · 붙임줄 {summary.Ties}개 · 코드 이름 {summary.ChordSymbols}개";
         WarningHeader.Text = result.Warnings.Count == 0
             ? "경고 없음: 이 파일의 모든 요소를 가져왔습니다."
             : $"경고 {result.Warnings.Count}종류 (총 {result.Warnings.Sum(w => w.Count)}개)";

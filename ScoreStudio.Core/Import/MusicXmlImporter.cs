@@ -187,7 +187,10 @@ public static class MusicXmlImporter
                 Measures = project.Parts.Max(p => p.Measures.Count),
                 Notes = events.Count(e => e.Kind == "Note"),
                 Rests = events.Count(e => e.Kind == "Rest"),
-                Lyrics = events.Count(e => !string.IsNullOrEmpty(e.Lyric)),
+                Lyrics = events.Count(e => e.Lyrics.Count > 0),
+                LyricVerses = events.SelectMany(e => e.Lyrics).Select(l => l.Verse).DefaultIfEmpty(0).Max(),
+                Ties = events.Count(e => e.TieToNext),
+                ChordSymbols = project.Parts.SelectMany(p => p.Measures).Sum(m => m.ChordSymbols.Count),
             },
         };
     }
@@ -269,6 +272,8 @@ public static class MusicXmlImporter
         private int _staves = 1;
         private bool _firstMeasureDone;
         private string _location = "";
+        private ScoreVolta? _openVolta;
+        private int _openVoltaStart;
 
         public PartReader(string name, string label, string instrument, ImportWarningCollector warnings)
         {
@@ -285,6 +290,13 @@ public static class MusicXmlImporter
             {
                 measures.Add(ReadMeasure(measureElement, measures.Count));
                 _firstMeasureDone = true;
+            }
+
+            if (_openVolta is not null)
+            {
+                Warn("끝나지 않은 볼타(1·2번 괄호)는 마지막 마디까지로 맞춤");
+                _openVolta.MeasureCount = measures.Count - _openVoltaStart;
+                _openVolta.OpenEnd = true;
             }
 
             var staves = Enumerable.Range(1, _staves)
@@ -339,13 +351,10 @@ public static class MusicXmlImporter
                             Warn(DirectionNames.TryGetValue(type.Name.LocalName, out var label) ? label : $"지시 기호 <{type.Name.LocalName}>");
                         break;
                     case "barline":
-                        if (child.Element("repeat") is not null) Warn("도돌이표");
-                        if (child.Element("ending") is not null) Warn("볼타(1·2번 괄호)");
-                        if (child.Element("fermata") is not null) Warn("페르마타");
-                        if (child.Element("segno") is not null || child.Element("coda") is not null) Warn("세뇨·코다");
+                        ReadBarline(child, measure, index);
                         break;
                     case "harmony":
-                        Warn("코드 이름");
+                        ReadHarmony(child, measure, cursor);
                         break;
                     case "figured-bass":
                         Warn("숫자 저음");
@@ -570,7 +579,8 @@ public static class MusicXmlImporter
                 return;
             }
 
-            item.Lyric = ReadLyrics(note);
+            item.Lyrics = ReadLyrics(note);
+            item.TieToNext = item.Kind == "Note" && ReadTie(note);
             ReadNotations(note);
             measure.Events.Add(item);
         }
@@ -624,31 +634,236 @@ public static class MusicXmlImporter
             return true;
         }
 
-        private string? ReadLyrics(XElement note)
+        private List<ScoreLyric> ReadLyrics(XElement note)
         {
-            var lyrics = note.Elements("lyric").ToList();
-            if (lyrics.Count == 0) return null;
+            var lyrics = new List<ScoreLyric>();
+            var index = 0;
+            foreach (var element in note.Elements("lyric"))
+            {
+                index++;
+                var verse = int.TryParse((string?)element.Attribute("number"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var number) && number >= 1
+                    ? number
+                    : index;
 
-            var first = lyrics.FirstOrDefault(l => (string?)l.Attribute("number") is "1" or null) ?? lyrics[0];
-            if (lyrics.Count > 1) Warn("두 번째 이후 가사 절");
-            // A hyphen follows every "begin" and "middle" syllable.
-            if (first.Elements("syllabic").Any(s => s.Value.Trim() is "begin" or "middle"))
-                Warn("가사 음절 연결(하이픈) 표시");
-            if (first.Element("extend") is not null)
-                Warn("가사 연장선");
+                // Several <text> elements mean an elision: two syllables sung on one note, joined with an undertie.
+                var text = string.Join("‿", element.Elements("text").Select(t => t.Value.Trim()).Where(t => t.Length > 0));
+                if (text.Length == 0)
+                    continue; // e.g. only the end of an extender line
 
-            var text = string.Join(" ", first.Elements("text").Select(t => t.Value.Trim()).Where(t => t.Length > 0));
-            return text.Length == 0 ? null : text;
+                if (lyrics.Any(l => l.Verse == verse))
+                {
+                    Warn("같은 절 번호의 가사가 한 음표에 두 번 있으면 처음 것만 가져옴");
+                    continue;
+                }
+
+                var syllabic = element.Elements("syllabic").FirstOrDefault()?.Value.Trim() switch
+                {
+                    "begin" => LyricSyllabic.Begin,
+                    "middle" => LyricSyllabic.Middle,
+                    "end" => LyricSyllabic.End,
+                    _ => LyricSyllabic.Single,
+                };
+                var extend = element.Element("extend") is { } extendElement && IsStartOrSingle(extendElement);
+                lyrics.Add(new ScoreLyric { Verse = verse, Text = text, Syllabic = syllabic, Extend = extend });
+            }
+
+            return lyrics.OrderBy(l => l.Verse).ToList();
+        }
+
+        private bool ReadTie(XElement note)
+        {
+            var types = note.Elements("tie").Select(t => (string?)t.Attribute("type"))
+                .Concat(note.Elements("notations").SelectMany(n => n.Elements("tied")).Select(t => (string?)t.Attribute("type")))
+                .ToList();
+            if (types.Contains("let-ring"))
+                Warn("울림 붙임줄(let ring)");
+            return types.Contains("start");
         }
 
         private void ReadNotations(XElement note)
         {
-            var notations = note.Elements("notations").SelectMany(n => n.Elements()).Where(IsStartOrSingle).ToList();
-            if (note.Elements("tie").Any(IsStartOrSingle) || notations.Any(n => n.Name == "tied"))
-                Warn("붙임줄");
-
-            foreach (var name in notations.Select(n => n.Name.LocalName).Where(n => n != "tied").Distinct())
+            var notations = note.Elements("notations").SelectMany(n => n.Elements())
+                .Where(n => n.Name != "tied")
+                .Where(IsStartOrSingle);
+            foreach (var name in notations.Select(n => n.Name.LocalName).Distinct())
                 Warn(NotationNames.TryGetValue(name, out var label) ? label : $"기호 <{name}>");
+        }
+
+        private void ReadBarline(XElement barline, ScoreMeasure measure, int index)
+        {
+            if (barline.Element("repeat") is { } repeat)
+            {
+                if ((string?)repeat.Attribute("direction") == "forward")
+                {
+                    measure.RepeatStart = true;
+                }
+                else
+                {
+                    measure.RepeatEnd = true;
+                    if (repeat.Attribute("times") is { } timesAttribute)
+                    {
+                        if (int.TryParse(timesAttribute.Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var times) && times >= 2)
+                            measure.RepeatTimes = times;
+                        else
+                            Warn("읽을 수 없는 반복 횟수는 2회로 가져옴");
+                    }
+                }
+            }
+
+            if (barline.Element("ending") is { } ending)
+                ReadEnding(ending, measure, index);
+
+            if (barline.Element("fermata") is not null) Warn("페르마타");
+            if (barline.Element("segno") is not null || barline.Element("coda") is not null) Warn("세뇨·코다");
+        }
+
+        /// <summary>
+        /// A volta starts with type="start" on one measure and ends with type="stop" (closed hook) or
+        /// "discontinue" (open end) on the same or a later measure.
+        /// </summary>
+        private void ReadEnding(XElement ending, ScoreMeasure measure, int index)
+        {
+            var type = (string?)ending.Attribute("type");
+            if (type == "start")
+            {
+                if (_openVolta is not null)
+                {
+                    Warn("끝나지 않은 볼타(1·2번 괄호)는 마지막 마디까지로 맞춤");
+                    _openVolta.MeasureCount = index - _openVoltaStart;
+                    _openVolta.OpenEnd = true;
+                }
+
+                var numbers = ((string?)ending.Attribute("number"))?.Trim();
+                _openVolta = new ScoreVolta
+                {
+                    Numbers = string.IsNullOrEmpty(numbers) ? "1" : numbers,
+                    Text = ending.Value.Trim(),
+                };
+                _openVoltaStart = index;
+                measure.Volta = _openVolta;
+            }
+            else if (type is "stop" or "discontinue" && _openVolta is not null)
+            {
+                _openVolta.MeasureCount = index - _openVoltaStart + 1;
+                _openVolta.OpenEnd = type == "discontinue";
+                _openVolta = null;
+            }
+        }
+
+        private void ReadHarmony(XElement harmony, ScoreMeasure measure, Rational cursor)
+        {
+            var root = harmony.Element("root");
+            var rootStep = root?.Element("root-step")?.Value.Trim().ToUpperInvariant();
+            if (root is null || rootStep is not ("A" or "B" or "C" or "D" or "E" or "F" or "G"))
+            {
+                Warn(harmony.Element("function") is not null || harmony.Element("numeral") is not null
+                    ? "로마 숫자 화성 기호"
+                    : "읽을 수 없는 코드 이름");
+                return;
+            }
+
+            if (harmony.Element("frame") is not null)
+                Warn("코드 다이어그램(기타 프렛 그림)");
+
+            var position = cursor;
+            if (harmony.Element("offset") is { } offset
+                && long.TryParse(offset.Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var offsetDivisions)
+                && _divisions > 0)
+            {
+                position += new Rational(offsetDivisions, _divisions);
+                if (position.Sign < 0) position = Rational.Zero;
+            }
+
+            var chord = new ScoreChordSymbol
+            {
+                RootStep = rootStep,
+                RootAlter = Alter(root.Element("root-alter")),
+                Kind = harmony.Element("kind")?.Value.Trim() is { Length: > 0 } kind ? kind : "major",
+                Staff = harmony.Element("staff") is { } staffElement
+                    && int.TryParse(staffElement.Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var staff)
+                    && staff >= 1 && staff <= _staves
+                        ? staff - 1
+                        : 0,
+            };
+
+            if (harmony.Element("bass") is { } bass
+                && bass.Element("bass-step")?.Value.Trim().ToUpperInvariant() is "A" or "B" or "C" or "D" or "E" or "F" or "G")
+            {
+                chord.BassStep = bass.Element("bass-step")!.Value.Trim().ToUpperInvariant();
+                chord.BassAlter = Alter(bass.Element("bass-alter"));
+            }
+
+            if (!TrySetFraction(position, (n, d) => (chord.PositionNumerator, chord.PositionDenominator) = (n, d)))
+            {
+                Warn("읽을 수 없는 코드 이름");
+                return;
+            }
+
+            chord.Text = ChordText(chord, harmony);
+            measure.ChordSymbols.Add(chord);
+        }
+
+        private static int Alter(XElement? element) =>
+            decimal.TryParse(element?.Value.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var alter)
+                ? Math.Clamp((int)Math.Round(alter, MidpointRounding.AwayFromZero), -2, 2)
+                : 0;
+
+        private static string Accidental(int alter) => alter > 0 ? new string('#', alter) : new string('b', -alter);
+
+        /// <summary>
+        /// The printed chord symbol. The kind's own text (what Finale shows) wins; otherwise a common
+        /// lead-sheet suffix is used. Added, altered and removed degrees are appended.
+        /// </summary>
+        private static string ChordText(ScoreChordSymbol chord, XElement harmony)
+        {
+            var kindElement = harmony.Element("kind");
+            if (chord.Kind == "none")
+                return "N.C.";
+
+            var suffix = (string?)kindElement?.Attribute("text") ?? chord.Kind switch
+            {
+                "major" => "",
+                "minor" => "m",
+                "augmented" => "+",
+                "diminished" => "dim",
+                "dominant" => "7",
+                "major-seventh" => "maj7",
+                "minor-seventh" => "m7",
+                "diminished-seventh" => "dim7",
+                "augmented-seventh" => "+7",
+                "half-diminished" => "m7b5",
+                "major-minor" => "m(maj7)",
+                "major-sixth" => "6",
+                "minor-sixth" => "m6",
+                "dominant-ninth" => "9",
+                "major-ninth" => "maj9",
+                "minor-ninth" => "m9",
+                "dominant-11th" => "11",
+                "major-11th" => "maj11",
+                "minor-11th" => "m11",
+                "dominant-13th" => "13",
+                "major-13th" => "maj13",
+                "minor-13th" => "m13",
+                "suspended-second" => "sus2",
+                "suspended-fourth" => "sus4",
+                "power" => "5",
+                _ => "",
+            };
+
+            foreach (var degree in harmony.Elements("degree"))
+            {
+                var value = degree.Element("degree-value")?.Value.Trim() ?? "";
+                var alter = Accidental(Alter(degree.Element("degree-alter")));
+                suffix += degree.Element("degree-type")?.Value.Trim() switch
+                {
+                    "add" => $"add{alter}{value}",
+                    "subtract" => $"no{value}",
+                    _ => $"{alter}{value}",
+                };
+            }
+
+            var text = chord.RootStep + Accidental(chord.RootAlter) + suffix;
+            return chord.BassStep is null ? text : $"{text}/{chord.BassStep}{Accidental(chord.BassAlter)}";
         }
 
         /// <summary>

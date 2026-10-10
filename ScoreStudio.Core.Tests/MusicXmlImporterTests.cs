@@ -25,7 +25,9 @@ public sealed class MusicXmlImporterTests : IDisposable
 
     private static string Describe(ScoreEvent e) =>
         $"{e.Kind} {(e.Kind == "Note" ? e.NotationSpelling + "(" + e.MidiPitch + ")" : "")} @{Fraction(e.PositionNumerator, e.PositionDenominator)} " +
-        $"len {Fraction(e.DurationNumerator, e.DurationDenominator)} staff {e.Staff} voice {e.Voice}{(e.Lyric is null ? "" : " '" + e.Lyric + "'")}";
+        $"len {Fraction(e.DurationNumerator, e.DurationDenominator)} staff {e.Staff} voice {e.Voice}{(Verse1(e) is { } lyric ? " '" + lyric + "'" : "")}";
+
+    private static string? Verse1(ScoreEvent e) => e.Lyrics.FirstOrDefault(l => l.Verse == 1)?.Text;
 
     [Fact]
     public void SimpleMelody_TitlesKeyTimePitchesRhythmAndLyricsMatchTheSource()
@@ -100,23 +102,32 @@ public sealed class MusicXmlImporterTests : IDisposable
         var result = MusicXmlImporter.ImportFile(Sample("unsupported-features.musicxml"));
         var warnings = result.Warnings.ToDictionary(w => w.Message, w => w.Count);
 
-        Assert.Equal(1, warnings["꾸밈음"]);
-        Assert.Equal(1, warnings["붙임줄"]);
-        Assert.Equal(1, warnings["이음줄"]);
-        Assert.Equal(1, warnings["셈여림"]);
-        Assert.Equal(1, warnings["아티큘레이션(스타카토, 악센트 등)"]);
-        Assert.Equal(1, warnings["페르마타"]);
-        Assert.Equal(2, warnings["도돌이표"]);
-        Assert.Equal(1, warnings["코드 이름"]);
-        Assert.Equal(1, warnings["두 번째 이후 가사 절"]);
-        Assert.Equal(1, warnings["가사 음절 연결(하이픈) 표시"]);
-        Assert.Equal(1, warnings["중간 음자리표 변경은 가져오지 않음 (처음 음자리표를 유지)"]);
+        Assert.Equal(
+            new Dictionary<string, int>
+            {
+                ["셈여림"] = 1,
+                ["꾸밈음"] = 1,
+                ["이음줄"] = 1,
+                ["아티큘레이션(스타카토, 악센트 등)"] = 1,
+                ["페르마타"] = 1,
+                ["중간 음자리표 변경은 가져오지 않음 (처음 음자리표를 유지)"] = 1,
+            },
+            warnings);
         Assert.Equal("플루트 1마디", result.Warnings.First(w => w.Message == "꾸밈음").FirstLocation);
 
         var part = result.Project.Parts.Single();
         Assert.Equal(ClefType.Treble, part.Staves.Single().Clef);
         Assert.DoesNotContain(part.Measures.SelectMany(m => m.Events), e => e.NotationSpelling == "D5");
-        Assert.Equal(new[] { "노", null, "래" }, part.Measures[0].Events.Select(e => e.Lyric));
+        Assert.Equal(new[] { "노", null, "래" }, part.Measures[0].Events.Select(Verse1));
+
+        // Imported since schema version 4: ties, later verses, hyphens, chord symbols, repeats.
+        var first = part.Measures[0].Events[0];
+        Assert.True(first.TieToNext);
+        Assert.False(part.Measures[0].Events[1].TieToNext);
+        Assert.Equal(new[] { "1:노:Begin", "2:둘:Single" }, first.Lyrics.Select(l => $"{l.Verse}:{l.Text}:{l.Syllabic}"));
+        Assert.Equal("C", Assert.Single(part.Measures[0].ChordSymbols).Text);
+        Assert.Equal((true, false), (part.Measures[0].RepeatStart, part.Measures[0].RepeatEnd));
+        Assert.Equal((false, true), (part.Measures[1].RepeatStart, part.Measures[1].RepeatEnd));
         Assert.Equal(new[] { "0/1", "2/1", "3/1" }, part.Measures[0].Events.Select(e => Fraction(e.PositionNumerator, e.PositionDenominator)));
     }
 
@@ -127,6 +138,7 @@ public sealed class MusicXmlImporterTests : IDisposable
     [InlineData("simple-melody.musicxml")]
     [InlineData("piano-grand-staff.musicxml")]
     [InlineData("unsupported-features.musicxml")]
+    [InlineData("hymn-repeats-chords.musicxml")]
     public void ImportedCounts_MatchCountsTakenDirectlyFromTheSource(string file)
     {
         var source = XDocument.Load(Sample(file));
@@ -136,15 +148,29 @@ public sealed class MusicXmlImporterTests : IDisposable
             Measures: source.Root.Elements("part").Max(p => p.Elements("measure").Count()),
             Notes: notes.Count(n => n.Element("pitch") is not null),
             Rests: notes.Count(n => n.Element("rest") is not null),
-            Lyrics: notes.Count(n => n.Element("lyric") is not null));
+            Lyrics: notes.Count(n => n.Elements("lyric").Any(l => l.Elements("text").Any(t => t.Value.Trim().Length > 0))),
+            LyricSyllables: notes.Sum(n => n.Elements("lyric").Count(l => l.Elements("text").Any(t => t.Value.Trim().Length > 0))),
+            Ties: notes.Count(n => n.Elements("tie").Any(t => (string?)t.Attribute("type") == "start")),
+            Chords: source.Descendants("harmony").Count(h => h.Element("root") is not null),
+            RepeatStarts: source.Descendants("repeat").Count(r => (string?)r.Attribute("direction") == "forward"),
+            RepeatEnds: source.Descendants("repeat").Count(r => (string?)r.Attribute("direction") == "backward"),
+            Voltas: source.Descendants("ending").Count(e => (string?)e.Attribute("type") == "start"));
 
         var result = MusicXmlImporter.ImportFile(Sample(file));
-        var events = result.Project.Parts.SelectMany(p => p.Measures).SelectMany(m => m.Events).ToList();
+        var measures = result.Project.Parts.SelectMany(p => p.Measures).ToList();
+        var events = measures.SelectMany(m => m.Events).ToList();
 
-        Assert.Equal(expected, (result.Summary.Parts, result.Summary.Measures, result.Summary.Notes, result.Summary.Rests, result.Summary.Lyrics));
+        Assert.Equal(
+            (expected.Parts, expected.Measures, expected.Notes, expected.Rests, expected.Lyrics, expected.Ties, expected.Chords),
+            (result.Summary.Parts, result.Summary.Measures, result.Summary.Notes, result.Summary.Rests, result.Summary.Lyrics, result.Summary.Ties, result.Summary.ChordSymbols));
         Assert.Equal(expected.Notes, events.Count(e => e.Kind == "Note"));
         Assert.Equal(expected.Rests, events.Count(e => e.Kind == "Rest"));
-        Assert.Equal(expected.Lyrics, events.Count(e => e.Lyric is not null));
+        Assert.Equal(expected.LyricSyllables, events.Sum(e => e.Lyrics.Count));
+        Assert.Equal(expected.Ties, events.Count(e => e.TieToNext));
+        Assert.Equal(expected.Chords, measures.Sum(m => m.ChordSymbols.Count));
+        Assert.Equal(
+            (expected.RepeatStarts, expected.RepeatEnds, expected.Voltas),
+            (measures.Count(m => m.RepeatStart), measures.Count(m => m.RepeatEnd), measures.Count(m => m.Volta is not null)));
     }
 
     [Fact]
@@ -172,6 +198,65 @@ public sealed class MusicXmlImporterTests : IDisposable
             zip.CreateEntryFromFile(Sample("piano-grand-staff.musicxml"), "piano.xml");
 
         Assert.Equal("피아노 연습곡", MusicXmlImporter.ImportFile(path).Project.Title);
+    }
+
+    [Fact]
+    public void Hymn_VersesTiesChordSymbolsRepeatsAndVoltasMatchTheSource()
+    {
+        var result = MusicXmlImporter.ImportFile(Sample("hymn-repeats-chords.musicxml"));
+        var measures = result.Project.Parts.Single().Measures;
+
+        Assert.Empty(result.Warnings);
+        Assert.Equal((7, 2, 1, 8), (result.Summary.Lyrics, result.Summary.LyricVerses, result.Summary.Ties, result.Summary.ChordSymbols));
+
+        // Lyrics: two verses, a hyphenated word across the tie, an extender in verse 2.
+        Assert.Equal(
+            new[] { "1:주:Single 2:나:Single", "1:님:Single 2:의:Single", "1:사:Begin 2:삶:Single~", "", "1:랑:End", "1:해:Single", "1:요:Single", "", "1:멘:Single" },
+            measures.SelectMany(m => m.Events).Select(e =>
+                string.Join(" ", e.Lyrics.Select(l => $"{l.Verse}:{l.Text}:{l.Syllabic}{(l.Extend ? "~" : "")}"))));
+
+        // The tie starts on the B4 at the end of measure 1 and nowhere else.
+        var tied = Assert.Single(measures.SelectMany(m => m.Events), e => e.TieToNext);
+        Assert.Equal(("B4", 1), (tied.NotationSpelling, measures.FindIndex(m => m.Events.Contains(tied)) + 1));
+
+        Assert.Equal(
+            new[] { "1:G@0/1", "1:D/F#@2/1", "2:Em7@0/1", "2:CM7@2/1", "3:Am7b5@0/1", "3:Gsus4@2/1", "3:N.C.@3/1", "4:Gadd9@0/1" },
+            measures.SelectMany(m => m.ChordSymbols.Select(c => $"{m.Number}:{c.Text}@{c.PositionNumerator}/{c.PositionDenominator}")));
+        var slash = measures[0].ChordSymbols[1];
+        Assert.Equal(("D", 0, "major", "F", 1), (slash.RootStep, slash.RootAlter, slash.Kind, slash.BassStep, slash.BassAlter));
+
+        Assert.Equal(
+            new[] { "start", "end×2", "", "" },
+            measures.Select(m => string.Join(",", new[] { m.RepeatStart ? "start" : null, m.RepeatEnd ? $"end×{m.RepeatTimes}" : null }.Where(x => x is not null))));
+        Assert.Null(measures[0].Volta);
+        Assert.Equal(("1", "1.", 1, false), (measures[1].Volta!.Numbers, measures[1].Volta!.Text, measures[1].Volta!.MeasureCount, measures[1].Volta!.OpenEnd));
+        Assert.Equal(("2", "2.", 1, true), (measures[2].Volta!.Numbers, measures[2].Volta!.Text, measures[2].Volta!.MeasureCount, measures[2].Volta!.OpenEnd));
+        Assert.Null(measures[3].Volta);
+    }
+
+    [Fact]
+    public void VoltaSpanningSeveralMeasures_AndUnclosedVolta_AreMeasuredInMeasures()
+    {
+        const string xml = """
+            <score-partwise>
+              <part-list><score-part id="P1"><part-name>A</part-name></score-part></part-list>
+              <part id="P1">
+                <measure number="1"><barline location="left"><ending number="1, 2" type="start"/></barline></measure>
+                <measure number="2"/>
+                <measure number="3"><barline location="right"><ending number="1, 2" type="stop"/><repeat direction="backward" times="3"/></barline></measure>
+                <measure number="4"><barline location="left"><ending number="3" type="start"/></barline></measure>
+                <measure number="5"/>
+              </part>
+            </score-partwise>
+            """;
+
+        var result = MusicXmlImporter.ImportXml(xml, "voltas");
+        var measures = result.Project.Parts.Single().Measures;
+
+        Assert.Equal(("1, 2", "", 3, false), (measures[0].Volta!.Numbers, measures[0].Volta!.Text, measures[0].Volta!.MeasureCount, measures[0].Volta!.OpenEnd));
+        Assert.Equal((true, 3), (measures[2].RepeatEnd, measures[2].RepeatTimes));
+        Assert.Equal((2, true), (measures[3].Volta!.MeasureCount, measures[3].Volta!.OpenEnd));
+        Assert.Equal("끝나지 않은 볼타(1·2번 괄호)는 마지막 마디까지로 맞춤", Assert.Single(result.Warnings).Message);
     }
 
     [Fact]
@@ -285,6 +370,7 @@ public sealed class MusicXmlImporterTests : IDisposable
     [InlineData("simple-melody.musicxml")]
     [InlineData("piano-grand-staff.musicxml")]
     [InlineData("unsupported-features.musicxml")]
+    [InlineData("hymn-repeats-chords.musicxml")]
     public void ImportedProject_SurvivesSaveAndReopen(string file)
     {
         var imported = MusicXmlImporter.ImportFile(Sample(file)).Project;

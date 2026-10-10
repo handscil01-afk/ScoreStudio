@@ -14,7 +14,14 @@ public sealed class ImportSummary
     public int Measures { get; init; }
     public int Notes { get; init; }
     public int Rests { get; init; }
+    /// <summary>Notes with at least one lyric syllable.</summary>
     public int Lyrics { get; init; }
+
+    /// <summary>The highest lyric verse number.</summary>
+    public int LyricVerses { get; init; }
+
+    public int Ties { get; init; }
+    public int ChordSymbols { get; init; }
 }
 
 public sealed class ImportResult

@@ -1,5 +1,5 @@
 {
-  "SchemaVersion": 3,
+  "SchemaVersion": 4,
   "Title": "샘플 합창곡",
   "Composer": "ScoreStudio 테스트",
   "PageSize": "A4",
@@ -23,6 +23,10 @@
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
           "Events": [
             {
               "Kind": "Note",
@@ -32,7 +36,15 @@
               "PositionNumerator": 0,
               "PositionDenominator": 1,
               "NotationSpelling": "C5",
-              "Lyric": "주",
+              "Lyrics": [
+                {
+                  "Verse": 1,
+                  "Text": "주",
+                  "Syllabic": "Single",
+                  "Extend": false
+                }
+              ],
+              "TieToNext": false,
               "Staff": 0,
               "Voice": 1
             },
@@ -44,7 +56,15 @@
               "PositionNumerator": 1,
               "PositionDenominator": 1,
               "NotationSpelling": "D5",
-              "Lyric": "님",
+              "Lyrics": [
+                {
+                  "Verse": 1,
+                  "Text": "님",
+                  "Syllabic": "Single",
+                  "Extend": false
+                }
+              ],
+              "TieToNext": false,
               "Staff": 0,
               "Voice": 1
             },
@@ -56,7 +76,8 @@
               "PositionNumerator": 3,
               "PositionDenominator": 2,
               "NotationSpelling": "Eb5",
-              "Lyric": null,
+              "Lyrics": [],
+              "TieToNext": false,
               "Staff": 0,
               "Voice": 1
             },
@@ -68,228 +89,385 @@
               "PositionNumerator": 2,
               "PositionDenominator": 1,
               "NotationSpelling": null,
-              "Lyric": null,
+              "Lyrics": [],
+              "TieToNext": false,
               "Staff": 0,
               "Voice": 1
             }
-          ]
+          ],
+          "ChordSymbols": []
         },
         {
           "Number": 2,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 3,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 4,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 5,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 6,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 7,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 8,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 9,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 10,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 11,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 12,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 13,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 14,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 15,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 16,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 17,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 18,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 19,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 20,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 21,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 22,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 23,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 24,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 25,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 26,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 27,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 28,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 29,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 30,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 31,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 32,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         }
       ]
     },
@@ -311,6 +489,10 @@
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
           "Events": [
             {
               "Kind": "Note",
@@ -320,228 +502,385 @@
               "PositionNumerator": 0,
               "PositionDenominator": 1,
               "NotationSpelling": "C3",
-              "Lyric": null,
+              "Lyrics": [],
+              "TieToNext": false,
               "Staff": 1,
               "Voice": 1
             }
-          ]
+          ],
+          "ChordSymbols": []
         },
         {
           "Number": 2,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 3,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 4,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 5,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 6,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 7,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 8,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 9,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 10,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 11,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 12,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 13,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 14,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 15,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 16,
           "Numerator": 3,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 17,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 18,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 19,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 20,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 21,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 22,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 23,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 24,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 25,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 26,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 27,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 28,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 29,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 30,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 31,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         },
         {
           "Number": 32,
           "Numerator": 4,
           "Denominator": 4,
           "KeyFifths": 0,
-          "Events": []
+          "RepeatStart": false,
+          "RepeatEnd": false,
+          "RepeatTimes": 2,
+          "Volta": null,
+          "Events": [],
+          "ChordSymbols": []
         }
       ]
     }
