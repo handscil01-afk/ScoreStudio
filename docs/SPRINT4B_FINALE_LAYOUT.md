@@ -48,3 +48,18 @@
 
 ### 수동 테스트 (Windows PC)
 1. 같은 파일을 가져와서 Finale 화면과 페이지 수, 줄마다의 마디, 숨긴 보표, 8va·8vb 구간, 음자리표 변경을 비교한다.
+
+## 추가: 파트 이름 표시와 파트 묶음 (스키마 버전 6 → 7)
+사용자의 실제 악보 3곡(「다윗의 노래」, 「하나님의 세계」, 「소원」)을 Finale 화면과 비교해서 찾은 차이다.
+- 세 곡 모두 파트 이름이 `<part-name print-object="no">`로 숨겨져 있어서 Finale에는 이름이 없지만, ScoreStudio는 "파트 4"처럼 그렸다.
+- 「다윗의 노래」는 성악 세 파트를, 「하나님의 세계」는 두 파트를 각진 괄호로 묶는다(`part-group`). 「하나님의 세계」는 마디선도 두 파트를 이어서 긋는다(`group-barline yes`).
+
+| 대상 | 추가 항목 | 설명 |
+|---|---|---|
+| `ScorePart` | `ShowName` (기본 true) | 첫 줄 왼쪽에 이름을 그릴지. `part-name` 또는 `part-name-display`의 `print-object="no"`이면 false. 화면 왼쪽 "악보 구성" 목록에는 계속 보인다. |
+| `ScoreProject` | `PartGroups` | `{FirstPart, LastPart, Symbol, JoinBarlines}` 목록. `Symbol`은 `None`, `Bracket`, `Brace`, `Line`, `Square`. |
+
+- 가져오기: `part-group`의 `number`로 시작·끝을 짝지으며 겹친 묶음도 읽는다. 끝나지 않은 묶음은 마지막 파트까지로 맞추고 경고한다. `group-barline`이 `yes`일 때만 마디선을 잇는다(`Mensurstrich`는 잇지 않음).
+- 화면: 묶음 기호는 피아노 중괄호보다 바깥에 그린다. 각진 괄호는 두께 0.5칸의 세로선과 Bravura의 위·아래 끝 기호(E003, E004)로 그린다. 숨긴 보표 때문에 묶음의 일부 파트만 보이는 줄에서는 보이는 보표만 묶는다. 파트 이름은 묶음 기호의 왼쪽에 쓴다.
+- 버전 1~6 파일은 그대로 열리고, 모든 파트 이름을 표시하며 묶음은 없다.
+- 자동 테스트: 샘플 `samples/musicxml/part-groups.musicxml`로 가져오기 결과, 괄호 위치, 이름 표시, 이어진 마디선을 검사한다. 겹친 묶음과 끝나지 않은 묶음은 별도 테스트로 검사한다. Windows 화면 테스트는 괄호 끝 기호에 잉크가 생기는지 확인한다.

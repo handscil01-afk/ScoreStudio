@@ -144,6 +144,7 @@ public sealed class MusicXmlImporterTests : IDisposable
     [InlineData("hymn-repeats-chords.musicxml")]
     [InlineData("layout-features.musicxml")]
     [InlineData("beams.musicxml")]
+    [InlineData("part-groups.musicxml")]
     public void ImportedCounts_MatchCountsTakenDirectlyFromTheSource(string file)
     {
         var source = XDocument.Load(Sample(file));
@@ -271,6 +272,51 @@ public sealed class MusicXmlImporterTests : IDisposable
 
         Assert.Equal(new[] { 3, 5 }, melody.Measures.Where(m => m.SystemBreak).Select(m => m.Number));
         Assert.Equal(new[] { 5 }, melody.Measures.Where(m => m.PageBreak).Select(m => m.Number));
+    }
+
+    [Fact]
+    public void PartGroupsAndHiddenNames_MatchTheSource()
+    {
+        var result = MusicXmlImporter.ImportFile(Sample("part-groups.musicxml"));
+
+        Assert.Empty(result.Warnings);
+        Assert.Equal(new[] { ("소프라노", true), ("알토", true), ("피아노", false) }, result.Project.Parts.Select(p => (p.Name, p.ShowName)));
+        var group = Assert.Single(result.Project.PartGroups);
+        Assert.Equal((0, 1, PartGroupSymbol.Bracket, true), (group.FirstPart, group.LastPart, group.Symbol, group.JoinBarlines));
+    }
+
+    [Fact]
+    public void NestedAndUnclosedPartGroups_AreReadByNumber()
+    {
+        // Group 1 (brace, no barline) holds all four parts; group 2 (square, Mensurstrich) holds parts 2–3;
+        // group 3 (no symbol) starts at part 4 and is never stopped.
+        const string xml = """
+            <score-partwise>
+              <part-list>
+                <part-group number="1" type="start"><group-symbol>brace</group-symbol><group-barline>no</group-barline></part-group>
+                <score-part id="P1"><part-name>A</part-name></score-part>
+                <part-group number="2" type="start"><group-symbol>square</group-symbol><group-barline>Mensurstrich</group-barline></part-group>
+                <score-part id="P2"><part-name>B</part-name></score-part>
+                <score-part id="P3"><part-name>C</part-name><part-name-display print-object="no"><display-text>C</display-text></part-name-display></score-part>
+                <part-group number="2" type="stop"/>
+                <part-group number="3" type="start"/>
+                <score-part id="P4"><part-name>D</part-name></score-part>
+                <part-group number="1" type="stop"/>
+              </part-list>
+              <part id="P1"><measure number="1"/></part>
+              <part id="P2"><measure number="1"/></part>
+              <part id="P3"><measure number="1"/></part>
+              <part id="P4"><measure number="1"/></part>
+            </score-partwise>
+            """;
+
+        var result = MusicXmlImporter.ImportXml(xml, "groups");
+
+        Assert.Equal(
+            new[] { (1, 2, PartGroupSymbol.Square, false), (0, 3, PartGroupSymbol.Brace, false), (3, 3, PartGroupSymbol.None, false) },
+            result.Project.PartGroups.Select(g => (g.FirstPart, g.LastPart, g.Symbol, g.JoinBarlines)));
+        Assert.Equal(new[] { true, true, false, true }, result.Project.Parts.Select(p => p.ShowName));
+        Assert.Equal("끝나지 않은 파트 묶음은 마지막 파트까지로 맞춤", Assert.Single(result.Warnings).Message);
     }
 
     [Fact]
@@ -498,6 +544,7 @@ public sealed class MusicXmlImporterTests : IDisposable
     [InlineData("hymn-repeats-chords.musicxml")]
     [InlineData("layout-features.musicxml")]
     [InlineData("beams.musicxml")]
+    [InlineData("part-groups.musicxml")]
     public void ImportedProject_SurvivesSaveAndReopen(string file)
     {
         var imported = MusicXmlImporter.ImportFile(Sample(file)).Project;

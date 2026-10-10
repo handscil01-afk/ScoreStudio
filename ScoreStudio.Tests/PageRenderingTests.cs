@@ -136,6 +136,7 @@ public sealed class PageRenderingTests
     [InlineData("hymn-repeats-chords")]
     [InlineData("layout-features")]
     [InlineData("beams")]
+    [InlineData("part-groups")]
     public void ImportedMusicXml_DrawsClefsAndNoteheadsWhereTheLayoutPutsThem(string sample)
     {
         RunSta(() =>
@@ -146,6 +147,11 @@ public sealed class PageRenderingTests
             AssertGlyphsDrawn(page, Clefs, 0.5, 8, 5, 6, 100, "clef");
             AssertGlyphsDrawn(page, Noteheads, 0.5, 1.2, 3, 1.2, 15, "notehead");
             AssertBeamsDrawn(page);
+            if (page.Items.OfType<GlyphItem>().Any(g => g.Glyph == Smufl.BracketTop))
+            {
+                AssertGlyphsDrawn(page, new[] { Smufl.BracketTop }, 0, 2.5, 3.5, 0.3, 10, "bracket top");
+                AssertGlyphsDrawn(page, new[] { Smufl.BracketBottom }, 0, 0.3, 3.5, 2.5, 10, "bracket bottom");
+            }
 
             SavePng(Render(page).Bitmap, $"preview-musicxml-{sample}.png");
         });

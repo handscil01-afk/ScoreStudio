@@ -226,6 +226,31 @@ public sealed class ProjectFileServiceTests : IDisposable
     }
 
     [Fact]
+    public void Load_Version6File_ShowsAllPartNames_AndHasNoPartGroups()
+    {
+        var project = ProjectFileService.Parse("""{ "SchemaVersion": 6, "Parts": [ { "Name": "A" } ] }""");
+
+        Assert.True(project.Parts[0].ShowName);
+        Assert.Empty(project.PartGroups);
+    }
+
+    [Fact]
+    public void SaveThenLoad_PreservesPartGroupsAndHiddenNames()
+    {
+        var project = ScoreProject.CreateNew();
+        project.Parts.Add(new ScorePart { Name = "피아노", ShowName = false });
+        project.PartGroups.Add(new ScorePartGroup { FirstPart = 0, LastPart = 1, Symbol = PartGroupSymbol.Brace, JoinBarlines = true });
+        var path = PathFor("groups.scoreproj");
+
+        ProjectFileService.Save(path, project);
+        var loaded = ProjectFileService.Load(path);
+
+        Assert.Equal(new[] { true, false }, loaded.Parts.Select(p => p.ShowName));
+        var group = Assert.Single(loaded.PartGroups);
+        Assert.Equal((0, 1, PartGroupSymbol.Brace, true), (group.FirstPart, group.LastPart, group.Symbol, group.JoinBarlines));
+    }
+
+    [Fact]
     public void SaveThenLoad_PreservesStavesAndClefs()
     {
         var project = ScoreProject.CreateNew();
@@ -312,6 +337,10 @@ public sealed class ProjectFileServiceTests : IDisposable
         { """{ "SchemaVersion": 5, "Parts": [ { "Measures": [ { "Events": [ { "OctaveShift": 3 } ] } ] } ] }""", "옥타브 기호 값(3)" },
         { """{ "SchemaVersion": 6, "Parts": [ { "Measures": [ { "Events": [ { "Beams": [ "Begin", "Begin", "Begin", "Begin", "Begin", "Begin", "Begin" ] } ] } ] } ] }""", "빔 정보" },
         { """{ "SchemaVersion": 6, "Parts": [ { "Measures": [ { "Events": [ { "Beams": [ "Sideways" ] } ] } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
+        { """{ "SchemaVersion": 7, "Parts": [ {} ], "PartGroups": [ { "FirstPart": 0, "LastPart": 1 } ] }""", "1번째 파트 묶음" },
+        { """{ "SchemaVersion": 7, "Parts": [ {}, {} ], "PartGroups": [ { "FirstPart": 1, "LastPart": 0 } ] }""", "1번째 파트 묶음" },
+        { """{ "SchemaVersion": 7, "Parts": [ {} ], "PartGroups": [ null ] }""", "1번째 파트 묶음" },
+        { """{ "SchemaVersion": 7, "Parts": [ {} ], "PartGroups": [ { "Symbol": "Curly" } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": "Percussion" } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": 7 } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
     };

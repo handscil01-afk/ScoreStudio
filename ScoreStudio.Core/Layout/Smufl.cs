@@ -13,6 +13,8 @@ public static class Smufl
     public const char CClef = '\uE05C';
     public const char FClef = '\uE062';
     public const char Brace = '\uE000';
+    public const char BracketTop = '\uE003';
+    public const char BracketBottom = '\uE004';
     public const char TimeSig0 = '\uE080';
 
     public const char NoteheadDoubleWhole = '\uE0A0';
@@ -53,6 +55,9 @@ public static class Smufl
     public const double ThinBarlineThickness = 0.16;
     public const double ThickBarlineThickness = 0.5;
     public const double BarlineSeparation = 0.4;
+
+    /// <summary>Thickness of a group bracket's vertical line; the top and bottom glyphs curl out from it.</summary>
+    public const double BracketThickness = 0.5;
 
     /// <summary>Width of the brace glyph at its natural size (one em tall).</summary>
     public const double BraceAdvanceWidth = 0.336;

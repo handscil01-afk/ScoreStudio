@@ -162,6 +162,7 @@ public sealed class NoteLayoutTests
     [InlineData("hymn-repeats-chords.musicxml")]
     [InlineData("layout-features.musicxml")]
     [InlineData("beams.musicxml")]
+    [InlineData("part-groups.musicxml")]
     public void EveryImportedNoteGetsAHead_AndEveryRestAGlyph(string file)
     {
         var project = MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", file)).Project;
@@ -354,6 +355,31 @@ public sealed class NoteLayoutTests
             Assert.Equal(m5Stems[0].X1 - m5Stems[0].Thickness / 2, b.X1, 6);
             Assert.Equal(m5Stems[3].X1 + m5Stems[3].Thickness / 2, b.X2, 6);
         });
+    }
+
+    [Fact]
+    public void PartGroups_DrawABracketAndJoinedBarlines_AndHiddenNamesStayHidden()
+    {
+        var project = MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", "part-groups.musicxml")).Project;
+        var page = ScoreLayoutEngine.Layout(project).Pages.Single();
+        var system = page.Systems[0];
+        var (soprano, alto, pianoTop, pianoBottom) = (system.Staves[0].Top, system.Staves[1].Top, system.Staves[2].Top, system.Staves[3].Top);
+
+        // The bracket ends sit on the top of the soprano staff and the bottom of the alto staff, left of the system.
+        var top = Assert.Single(page.Items.OfType<GlyphItem>(), g => g.Glyph == Smufl.BracketTop);
+        var bottom = Assert.Single(page.Items.OfType<GlyphItem>(), g => g.Glyph == Smufl.BracketBottom);
+        Assert.Equal((soprano, alto + 4 * Sp), (top.Y, bottom.Y));
+        Assert.True(top.X < system.Left && top.X == bottom.X);
+
+        // Names: the choir parts are printed left of the bracket; the piano's name is hidden in the source.
+        var names = page.Items.OfType<TextItem>().Where(t => t.Anchor == TextAnchor.End && t.X < system.Left).ToList();
+        Assert.Equal(new[] { "소프라노", "알토" }, names.Select(t => t.Text));
+        Assert.All(names, n => Assert.True(n.X < top.X));
+
+        // Barlines after measure 1 run from the soprano through the alto, and separately through the piano.
+        var barX = system.Measures[0].Right;
+        var barlines = page.Items.OfType<LineItem>().Where(l => l.X1 == l.X2 && Math.Abs(l.X1 - barX) < Sp).Select(l => (Math.Min(l.Y1, l.Y2), Math.Max(l.Y1, l.Y2))).OrderBy(l => l.Item1).ToList();
+        Assert.Equal(new[] { (soprano, alto + 4 * Sp), (pianoTop, pianoBottom + 4 * Sp) }, barlines);
     }
 
     /// <summary>

@@ -162,13 +162,20 @@ public static class MusicXmlImporter
             parts.Add((partElement, name, instrument));
         }
 
+        var partIds = new List<string>();
         for (var i = 0; i < parts.Count; i++)
         {
             // Warning locations must say which part they mean, even when several parts share a name.
             var (partElement, name, instrument) = parts[i];
             var label = parts.Count(p => p.Name == name) > 1 ? $"{i + 1}번째 파트({name})" : name;
-            project.Parts.Add(new PartReader(name, label, instrument, warnings).Read(partElement));
+            var part = new PartReader(name, label, instrument, warnings).Read(partElement);
+            var id = (string)partElement.Attribute("id")!;
+            part.ShowName = ShowsName(root.Element("part-list")!.Elements("score-part").First(p => (string?)p.Attribute("id") == id));
+            project.Parts.Add(part);
+            partIds.Add(id);
         }
+
+        project.PartGroups = ReadPartGroups(root.Element("part-list"), partIds, warnings);
 
         foreach (var orphan in partList.Values)
             warnings.Add("파트 목록에만 있고 내용이 없는 파트는 가져오지 않음", FirstText(orphan.Element("part-name")) ?? (string?)orphan.Attribute("id") ?? "");
@@ -217,6 +224,66 @@ public static class MusicXmlImporter
 
         var name = FirstText(scorePart.Element("part-name"));
         return name is null || string.Equals(name, FinalePlaceholderName, StringComparison.OrdinalIgnoreCase) ? null : name;
+    }
+
+    /// <summary>Finale hides part names with print-object="no" on part-name (or on part-name-display).</summary>
+    private static bool ShowsName(XElement scorePart) =>
+        (string?)scorePart.Element("part-name")?.Attribute("print-object") != "no"
+        && (string?)scorePart.Element("part-name-display")?.Attribute("print-object") != "no";
+
+    /// <summary>
+    /// &lt;part-group type="start"/"stop"&gt; around score-parts in the part list. Groups are matched by number and may
+    /// nest. A group left open runs to the last part; a group around no imported part is dropped.
+    /// </summary>
+    private static List<ScorePartGroup> ReadPartGroups(XElement? partList, List<string> partIds, ImportWarningCollector warnings)
+    {
+        var groups = new List<ScorePartGroup>();
+        if (partList is null) return groups;
+
+        var open = new Dictionary<string, (XElement Start, int FirstPart)>();
+        var nextPart = 0;
+        foreach (var element in partList.Elements())
+        {
+            if (element.Name == "score-part")
+            {
+                if (partIds.IndexOf((string?)element.Attribute("id") ?? "") is >= 0 and var index) nextPart = index + 1;
+                continue;
+            }
+
+            if (element.Name != "part-group") continue;
+            var number = (string?)element.Attribute("number") ?? "1";
+            var type = (string?)element.Attribute("type");
+            if (type == "start")
+                open[number] = (element, nextPart);
+            else if (type == "stop" && open.Remove(number, out var started))
+                AddGroup(started.Start, started.FirstPart, nextPart - 1);
+        }
+
+        foreach (var (start, firstPart) in open.Values)
+        {
+            warnings.Add("끝나지 않은 파트 묶음은 마지막 파트까지로 맞춤", "파트 목록");
+            AddGroup(start, firstPart, partIds.Count - 1);
+        }
+
+        return groups;
+
+        void AddGroup(XElement start, int first, int last)
+        {
+            if (first > last || first >= partIds.Count) return;
+            var symbol = start.Element("group-symbol")?.Value.Trim() switch
+            {
+                "brace" => PartGroupSymbol.Brace,
+                "bracket" => PartGroupSymbol.Bracket,
+                "line" => PartGroupSymbol.Line,
+                "square" => PartGroupSymbol.Square,
+                _ => PartGroupSymbol.None,
+            };
+            groups.Add(new ScorePartGroup
+            {
+                FirstPart = first, LastPart = last, Symbol = symbol,
+                JoinBarlines = start.Element("group-barline")?.Value.Trim() == "yes",
+            });
+        }
     }
 
     private static string? FirstText(params XElement?[] elements) =>

@@ -228,8 +228,9 @@ public static class ScoreLayoutEngine
 
     private static double PartNameIndent(ScoreProject project)
     {
-        var widest = project.Parts.Select(p => EstimateTextWidth(p.Name, PartNameSize)).DefaultIfEmpty(0).Max();
-        return widest <= 0 ? 0 : Math.Min(widest + 5, 40);
+        var widest = project.Parts.Where(p => p.ShowName).Select(p => EstimateTextWidth(p.Name, PartNameSize)).DefaultIfEmpty(0).Max();
+        var bracketRoom = project.PartGroups.Any(g => g.Symbol != PartGroupSymbol.None) ? 3 : 0;
+        return widest <= 0 ? 0 : Math.Min(widest + 5 + bracketRoom, 43);
     }
 
     /// <summary>Rough width without font metrics: Hangul and CJK are about one em wide, other characters about half.</summary>
@@ -392,25 +393,39 @@ public static class ScoreLayoutEngine
         if (slots.Count > 1)
             items.Add(new LineItem(left, staffTops[0], left, bottom, Smufl.ThinBarlineThickness * sp));
 
-        // Braces for multi-staff parts; part names on the first system.
+        // Braces for multi-staff parts, then group brackets further out, then part names on the first system.
+        var symbolLeft = new Dictionary<int, double>();
         foreach (var part in slots.GroupBy(s => s.PartIndex))
         {
             var partTop = top + part.First().Offset;
             var partBottom = top + part.Last().Offset + 4 * sp;
-            var braceWidth = 0.0;
+            symbolLeft[part.Key] = left;
             if (part.Count() > 1)
             {
                 var size = partBottom - partTop;
-                braceWidth = Smufl.BraceAdvanceWidth * size / 4;
-                items.Add(new GlyphItem(Smufl.Brace, left - braceWidth - 0.4 * sp, partBottom, size));
+                var braceX = left - Smufl.BraceAdvanceWidth * size / 4 - 0.4 * sp;
+                items.Add(new GlyphItem(Smufl.Brace, braceX, partBottom, size));
+                symbolLeft[part.Key] = braceX;
             }
+        }
 
-            var name = project.Parts[part.Key].Name;
-            if (isFirstSystem && !string.IsNullOrWhiteSpace(name))
-            {
-                var nameX = left - braceWidth - 0.4 * sp - 2;
-                items.Add(new TextItem(name.Trim(), nameX, (partTop + partBottom) / 2 + PartNameSize * 0.35, PartNameSize, TextAnchor.End));
-            }
+        foreach (var group in project.PartGroups.Where(g => g.Symbol != PartGroupSymbol.None))
+        {
+            var members = slots.Where(s => s.PartIndex >= group.FirstPart && s.PartIndex <= group.LastPart).ToList();
+            if (members.Count == 0) continue;
+            var groupLeft = DrawGroupSymbol(items, group.Symbol, members.Min(s => symbolLeft[s.PartIndex]),
+                top + members[0].Offset, top + members[^1].Offset + 4 * sp, sp);
+            foreach (var partIndex in members.Select(s => s.PartIndex).Distinct())
+                symbolLeft[partIndex] = Math.Min(symbolLeft[partIndex], groupLeft);
+        }
+
+        foreach (var part in slots.GroupBy(s => s.PartIndex))
+        {
+            var info = project.Parts[part.Key];
+            if (!isFirstSystem || !info.ShowName || string.IsNullOrWhiteSpace(info.Name)) continue;
+            var partTop = top + part.First().Offset;
+            var partBottom = top + part.Last().Offset + 4 * sp;
+            items.Add(new TextItem(info.Name.Trim(), symbolLeft[part.Key] - 2, (partTop + partBottom) / 2 + PartNameSize * 0.35, PartNameSize, TextAnchor.End));
         }
 
         // Measure number at the start of every system but the first.
@@ -470,7 +485,7 @@ public static class ScoreLayoutEngine
             DrawMeasureNotes(items, prepared[index], slots, staffTops, measureLeft + planned.Prefix, measureRight, planned.Scale, sp, placed);
 
             var isFinal = isLastSystem && k == plan.MeasureCount - 1;
-            DrawBarline(items, slots, top, measureRight, isFinal, sp);
+            DrawBarline(items, project, slots, top, measureRight, isFinal, sp);
             measureLayouts.Add(new MeasureLayout(index, measureLeft, measureRight, info.ShowsTimeSignature));
             x = measureRight;
         }
@@ -893,15 +908,77 @@ public static class ScoreLayoutEngine
         }
     }
 
-    /// <summary>Barlines run through all staves of a part but not between parts, so part names and gaps stay readable.</summary>
-    private static void DrawBarline(List<DrawItem> items, List<StaffSlot> slots, double top, double x, bool isFinal, double sp)
+    /// <summary>
+    /// Draws a group's bracket, brace, line or square left of <paramref name="right"/> from <paramref name="y1"/> to
+    /// <paramref name="y2"/>, and returns its left edge.
+    /// </summary>
+    private static double DrawGroupSymbol(List<DrawItem> items, PartGroupSymbol symbol, double right, double y1, double y2, double sp)
+    {
+        var thickness = Smufl.BracketThickness * sp;
+        switch (symbol)
+        {
+            case PartGroupSymbol.Brace:
+            {
+                var size = y2 - y1;
+                var x = right - Smufl.BraceAdvanceWidth * size / 4 - 0.4 * sp;
+                items.Add(new GlyphItem(Smufl.Brace, x, y2, size));
+                return x;
+            }
+
+            case PartGroupSymbol.Bracket:
+            {
+                // A thick line just outside the staves; the end glyphs curl back over the first and last staff.
+                var x = right - 1.0 * sp - thickness;
+                items.Add(new LineItem(x + thickness / 2, y1, x + thickness / 2, y2, thickness));
+                items.Add(new GlyphItem(Smufl.BracketTop, x, y1, 4 * sp));
+                items.Add(new GlyphItem(Smufl.BracketBottom, x, y2, 4 * sp));
+                return x;
+            }
+
+            case PartGroupSymbol.Square:
+            {
+                var x = right - 1.0 * sp - thickness;
+                var thin = Smufl.ThinBarlineThickness * sp;
+                items.Add(new LineItem(x + thickness / 2, y1, x + thickness / 2, y2, thickness));
+                items.Add(new LineItem(x, y1 + thin / 2, right - 0.2 * sp, y1 + thin / 2, thin));
+                items.Add(new LineItem(x, y2 - thin / 2, right - 0.2 * sp, y2 - thin / 2, thin));
+                return x;
+            }
+
+            case PartGroupSymbol.Line:
+            {
+                var x = right - 0.6 * sp;
+                items.Add(new LineItem(x, y1, x, y2, Smufl.ThinBarlineThickness * sp));
+                return x;
+            }
+
+            default:
+                return right;
+        }
+    }
+
+    /// <summary>
+    /// Barlines run through all staves of a part, and through all parts of a group that joins its barlines; elsewhere
+    /// they stop between parts so part names and lyrics stay readable.
+    /// </summary>
+    private static void DrawBarline(List<DrawItem> items, ScoreProject project, List<StaffSlot> slots, double top, double x, bool isFinal, double sp)
     {
         var thin = Smufl.ThinBarlineThickness * sp;
         var thick = Smufl.ThickBarlineThickness * sp;
+        var runs = new List<List<StaffSlot>>();
         foreach (var part in slots.GroupBy(s => s.PartIndex))
         {
-            var y1 = top + part.First().Offset;
-            var y2 = top + part.Last().Offset + 4 * sp;
+            var previous = runs.Count > 0 ? runs[^1][^1].PartIndex : -1;
+            var joined = previous >= 0 && project.PartGroups.Any(g =>
+                g.JoinBarlines && g.FirstPart <= previous && previous <= g.LastPart && g.FirstPart <= part.Key && part.Key <= g.LastPart);
+            if (joined) runs[^1].AddRange(part);
+            else runs.Add(part.ToList());
+        }
+
+        foreach (var run in runs)
+        {
+            var y1 = top + run[0].Offset;
+            var y2 = top + run[^1].Offset + 4 * sp;
             if (isFinal)
             {
                 items.Add(new LineItem(x - thick / 2, y1, x - thick / 2, y2, thick));

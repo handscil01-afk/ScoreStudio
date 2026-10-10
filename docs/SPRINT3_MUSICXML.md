@@ -18,6 +18,7 @@
 | `work-title`, 없으면 `movement-title`, 없으면 파일 이름 | 제목 |
 | `creator type="composer"` | 작곡자 |
 | `score-part` / `part-name` / `instrument-name` | 파트 이름 / 악기 |
+| `part-name print-object="no"`, `part-group` (`group-symbol`, `group-barline`) | 이름 표시 여부, 파트 묶음(괄호 종류, 마디선 연결) — 스키마 7 |
 | `measure number` | 마디 번호 (숫자가 아니면 순서 번호를 쓰고 경고) |
 | `attributes`: `divisions`, `time`, `key/fifths`, `staves`, `clef` | 길이 단위, 박자표, 조표(5도권 수), 보표 수, 음자리표 |
 | `note` + `pitch` (`step`, `alter`, `octave`) | 음표: MIDI 음높이, 철자(예: `Eb5`) |

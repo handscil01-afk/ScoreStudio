@@ -131,7 +131,8 @@ public static class ProjectFileService
 
         // Older files lack newer fields (version 1: staves; version 2: key, staff, voice; version 3: repeats, voltas,
         // chord symbols, all lyric verses, ties; version 4: clef changes, hidden staves, breaks, octave lines;
-        // version 5: beams, so older files show flags until the score is imported again).
+        // version 5: beams, so older files show flags until the score is imported again; version 6: hidden part names
+        // and part groups).
         // Validate and the model defaults fill them in, and a version 1–3 "Lyric" becomes verse 1.
         // Saving always writes the current version.
     }
@@ -147,6 +148,14 @@ public static class ProjectFileService
         project.PageSize ??= "A4";
         project.Orientation ??= "Portrait";
         project.Parts ??= new List<ScorePart>();
+        project.PartGroups ??= new List<ScorePartGroup>();
+        for (var g = 0; g < project.PartGroups.Count; g++)
+        {
+            var group = project.PartGroups[g];
+            if (group is null || group.FirstPart < 0 || group.LastPart < group.FirstPart || group.LastPart >= project.Parts.Count
+                || !Enum.IsDefined(group.Symbol))
+                throw Corrupt($"{g + 1}번째 파트 묶음 정보가 올바르지 않습니다.");
+        }
 
         for (var p = 0; p < project.Parts.Count; p++)
         {
