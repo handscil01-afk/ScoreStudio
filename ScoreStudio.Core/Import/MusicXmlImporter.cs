@@ -550,7 +550,8 @@ public static class MusicXmlImporter
 
         /// <summary>
         /// An 8va line (type "down": notes are written an octave lower than they sound), 8vb ("up"), 15ma/15mb (size 15),
-        /// or the end of one ("stop"). It applies by time to every voice on its staff.
+        /// or the end of one ("stop"). It applies by time to every voice on its staff. Finale writes the stop just before
+        /// the last note under the line, so notes starting at the stop's time are still shifted.
         /// </summary>
         private void ReadOctaveShift(XElement shift, XElement direction, int measureIndex, Rational cursor)
         {
@@ -584,8 +585,10 @@ public static class MusicXmlImporter
                     foreach (var change in changes)
                     {
                         if (change.Staff != item.Staff) continue;
-                        if (change.Measure > m || (change.Measure == m && change.Time > start)) break;
-                        shift = change.Shift;
+                        var isStop = change.Shift == 0;
+                        var comesLater = change.Measure > m
+                            || (change.Measure == m && (isStop ? change.Time >= start : change.Time > start));
+                        if (!comesLater) shift = change.Shift;
                     }
 
                     item.OctaveShift = shift;

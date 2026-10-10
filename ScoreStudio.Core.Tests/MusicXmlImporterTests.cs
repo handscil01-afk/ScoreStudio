@@ -271,6 +271,54 @@ public sealed class MusicXmlImporterTests : IDisposable
     }
 
     [Fact]
+    public void OctaveLineStop_IncludesTheNoteStartingAtTheStop_AsFinaleWritesIt()
+    {
+        // Measure 1: 8va from beat 2; the stop sits before the third quarter, which is still under the line.
+        // Measure 2 (staff 2): an 8vb whose stop comes before the first chord of measure 3, as Finale writes a line
+        // that ends on a downbeat.
+        const string xml = """
+            <score-partwise>
+              <part-list><score-part id="P1"><part-name>A</part-name></score-part></part-list>
+              <part id="P1">
+                <measure number="1">
+                  <attributes><divisions>1</divisions><staves>2</staves></attributes>
+                  <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><staff>1</staff></note>
+                  <direction><direction-type><octave-shift type="down" size="8"/></direction-type><staff>1</staff></direction>
+                  <note><pitch><step>C</step><octave>6</octave></pitch><duration>1</duration><staff>1</staff></note>
+                  <direction><direction-type><octave-shift type="stop" size="8"/></direction-type><staff>1</staff></direction>
+                  <note><pitch><step>G</step><octave>6</octave></pitch><duration>1</duration><staff>1</staff></note>
+                  <note><pitch><step>A</step><octave>5</octave></pitch><duration>1</duration><staff>1</staff></note>
+                  <backup><duration>4</duration></backup>
+                  <note><pitch><step>C</step><octave>3</octave></pitch><duration>4</duration><staff>2</staff></note>
+                </measure>
+                <measure number="2">
+                  <note><rest/><duration>4</duration><staff>1</staff></note>
+                  <backup><duration>4</duration></backup>
+                  <direction><direction-type><octave-shift type="up" size="8"/></direction-type><staff>2</staff></direction>
+                  <note><pitch><step>C</step><octave>1</octave></pitch><duration>4</duration><staff>2</staff></note>
+                </measure>
+                <measure number="3">
+                  <note><rest/><duration>4</duration><staff>1</staff></note>
+                  <backup><duration>4</duration></backup>
+                  <direction><direction-type><octave-shift type="stop" size="8"/></direction-type><staff>2</staff></direction>
+                  <note><pitch><step>C</step><octave>1</octave></pitch><duration>2</duration><staff>2</staff></note>
+                  <note><pitch><step>C</step><octave>2</octave></pitch><duration>2</duration><staff>2</staff></note>
+                </measure>
+              </part>
+            </score-partwise>
+            """;
+
+        var measures = MusicXmlImporter.ImportXml(xml, "octave").Project.Parts.Single().Measures;
+
+        string Shifts(int measure, int staff) =>
+            string.Join(",", measures[measure].Events.Where(e => e.Kind == "Note" && e.Staff == staff).Select(e => e.OctaveShift));
+        Assert.Equal("0,1,1,0", Shifts(0, 0));
+        Assert.Equal("0", Shifts(0, 1));
+        Assert.Equal("-1", Shifts(1, 1));
+        Assert.Equal("-1,0", Shifts(2, 1));
+    }
+
+    [Fact]
     public void VoltaSpanningSeveralMeasures_AndUnclosedVolta_AreMeasuredInMeasures()
     {
         const string xml = """
