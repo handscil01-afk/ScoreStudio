@@ -12,9 +12,9 @@ jobs:
       DOTNET_NOLOGO: true
       DOTNET_CLI_TELEMETRY_OPTOUT: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
 
@@ -30,7 +30,7 @@ jobs:
       - name: Publish app
         run: dotnet publish ScoreStudio/ScoreStudio.csproj -c Release --no-restore -o publish
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ScoreStudio-win-x64
           path: publish/

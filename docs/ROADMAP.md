@@ -1,9 +1,9 @@
 # 개발 로드맵 및 완료 기준
 
 ## Sprint 0 — 빌드 가능한 기반
-- [ ] Windows에서 .NET 8 SDK로 빌드
-- [ ] 앱 실행 및 기본 화면 확인
-- [ ] 빌드 오류 해결
+- [x] Windows에서 .NET 8 SDK로 빌드 (GitHub Actions `windows-latest`, 경고 0개·오류 0개)
+- [ ] 앱 실행 및 기본 화면 확인 (Windows PC에서 직접 확인 필요)
+- [x] 빌드 오류 해결 (누락된 솔루션 파일 추가)
 
 ## Sprint 1 — 자체 프로젝트 저장/열기
 - [x] 새 프로젝트 (자동 테스트로 확인)
