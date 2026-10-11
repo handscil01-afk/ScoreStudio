@@ -21,7 +21,7 @@ public sealed record EditResult(bool Done, string Message)
 /// Note entry and basic editing on a project, with undo and redo. All rules live here so they can be tested without a
 /// window; the WPF window only turns keys and clicks into these calls. See docs/SPRINT4_EDITING.md.
 /// </summary>
-public sealed class ScoreEditor
+public sealed partial class ScoreEditor
 {
     private const int MaxUndo = 200;
     private const string StepLetters = "CDEFGAB";
@@ -779,7 +779,7 @@ public sealed class ScoreEditor
     /// </summary>
     public static void AutoBeam(ScoreMeasure measure, int staff, int voice)
     {
-        var unit = measure.Denominator == 8 && measure.Numerator % 3 == 0 ? new Rational(3, 2) : new Rational(1, 1);
+        var unit = BeatUnit(measure);
         var chords = VoiceChords(measure, staff, voice);
         foreach (var e in chords.SelectMany(c => c)) e.Beams = new List<BeamType>();
 

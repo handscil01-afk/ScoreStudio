@@ -160,7 +160,8 @@ public static partial class Notation
             _ => 0,
         };
 
-        // Tenor-clef sharps would rise above the staff, so the high ones are written an octave lower.
-        return treble.Take(count).Select(p => p + shift > 8 ? p + shift - 7 : p + shift).ToList();
+        // Tenor-clef sharps would rise above the staff, so the high ones are written an octave lower. In the other clefs
+        // the third sharp sits in the space above the staff (G sharp in the treble clef).
+        return treble.Take(count).Select(p => clef == ClefType.Tenor && p + shift > 8 ? p + shift - 7 : p + shift).ToList();
     }
 }

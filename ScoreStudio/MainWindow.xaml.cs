@@ -48,6 +48,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         _editor.TieAcrossBarlines = _settings.TieAcrossBarlines;
         TieAcrossBarlinesMenuItem.IsChecked = _settings.TieAcrossBarlines;
+        BuildSignatureMenus();
         SetZoom(1);
         ApplyProjectToUi();
         Loaded += (_, _) => ScoreScroll.Focus();
@@ -218,6 +219,35 @@ public partial class MainWindow : Window
 
     private void DeleteMeasure_Click(object sender, RoutedEventArgs e) => RunEdit(ed => ed.DeleteMeasure());
 
+    /// <summary>Time signatures offered in the edit menu.</summary>
+    private static readonly (int Numerator, int Denominator)[] TimeSignatures =
+    {
+        (2, 4), (3, 4), (4, 4), (5, 4), (6, 4), (2, 2), (3, 2), (3, 8), (5, 8), (6, 8), (7, 8), (9, 8), (12, 8),
+    };
+
+    /// <summary>Fills the key, time signature and clef submenus of the edit menu.</summary>
+    private void BuildSignatureMenus()
+    {
+        for (var fifths = -7; fifths <= 7; fifths++)
+        {
+            var value = fifths;
+            KeyMenu.Items.Add(CommandItem(ScoreEditor.KeyName(value), () => RunEdit(ed => ed.SetKey(value))));
+        }
+
+        foreach (var (numerator, denominator) in TimeSignatures)
+            TimeMenu.Items.Add(CommandItem($"{numerator}/{denominator}", () => RunEdit(ed => ed.SetTime(numerator, denominator))));
+
+        foreach (var clef in Enum.GetValues<ClefType>())
+            ClefMenu.Items.Add(CommandItem(ScoreEditor.ClefName(clef), () => RunEdit(ed => ed.SetClef(clef))));
+    }
+
+    private static MenuItem CommandItem(string header, Action action)
+    {
+        var item = new MenuItem { Header = header };
+        item.Click += (_, _) => action();
+        return item;
+    }
+
     private void Rest_Click(object sender, RoutedEventArgs e) => RunEdit(ed => ed.EnterRest());
 
     private void Dot_Click(object sender, RoutedEventArgs e) => RunEdit(ed => ed.ToggleDot());
@@ -258,7 +288,8 @@ public partial class MainWindow : Window
             "N : 마우스 입력 켜기·끄기 (켜면 오선 위를 눌러 그 높이의 음표를 넣고, Shift+누르기로 화음에 더함)\n\n" +
             "음표를 누르면 선택하고, 빈 곳을 누르면 그 마디에 입력 위치를 둡니다.\n" +
             "음표를 선택한 상태에서 길이 키를 누르면 그 음표의 길이가 바뀝니다.\n" +
-            "마디에 남은 길이보다 긴 음표는 넣지 않습니다. 설정 메뉴에서 다음 마디로 붙임줄로 이어 넣게 바꿀 수 있습니다.",
+            "마디에 남은 길이보다 긴 음표는 넣지 않습니다. 설정 메뉴에서 다음 마디로 붙임줄로 이어 넣게 바꿀 수 있습니다.\n\n" +
+            "조표·박자표는 편집 메뉴에서 입력 위치의 마디부터 다음 변경 전까지 바꾸고, 음자리표는 선택한 음표(없으면 입력 위치)에 넣습니다.",
             "키보드 입력 방법", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
@@ -599,7 +630,7 @@ public partial class MainWindow : Window
     private void About_Click(object sender, RoutedEventArgs e)
     {
         MessageBox.Show(this,
-            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·조표·박자표·마디선·음표·쉼표·빔·붙임줄·가사·코드 이름·도돌이표·볼타·음자리표 변경·옥타브 기호, 여러 페이지, 확대/축소), MusicXML 가져오기, 키보드와 마우스로 음표·쉼표 입력과 고치기(실행 취소 포함)\n아직 가져오지 않음: 셈여림, 이음줄, 아티큘레이션, 글자 지시(가져오기 결과 창에 경고로 표시)\n아직 지원하지 않음: 잇단음표·가사 입력, MUSX 변환, PDF 출력",
+            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·조표·박자표·마디선·음표·쉼표·빔·붙임줄·가사·코드 이름·도돌이표·볼타·음자리표 변경·옥타브 기호, 여러 페이지, 확대/축소), MusicXML 가져오기, 키보드와 마우스로 음표·쉼표 입력과 고치기, 조표·박자표·음자리표 바꾸기(실행 취소 포함)\n아직 가져오지 않음: 셈여림, 이음줄, 아티큘레이션, 글자 지시(가져오기 결과 창에 경고로 표시)\n아직 지원하지 않음: 잇단음표·가사 입력, MUSX 변환, PDF 출력",
             "개발 상태", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 

@@ -94,7 +94,7 @@ public static partial class ScoreLayoutEngine
     private sealed record MeasureInfo(
         int Number, int Numerator, int Denominator, bool ShowsTimeSignature, int[] Keys, bool KeyChanges,
         bool ClefChangeAtStart, bool SystemBreak, bool PageBreak, bool RepeatStart, bool RepeatEnd, ScoreVolta? Volta,
-        double? SourceWidth = null);
+        double? SourceWidth = null, int[]? PreviousKeys = null);
 
     /// <summary>Room for a repeat sign (thick line, thin line, dots and a gap), in staff spaces.</summary>
     private const double RepeatSignWidth = 2.2;
@@ -402,7 +402,8 @@ public static partial class ScoreLayoutEngine
                 RepeatStart: parts.Any(m => m.RepeatStart),
                 RepeatEnd: parts.Any(m => m.RepeatEnd),
                 Volta: parts.Select(m => m.Volta).FirstOrDefault(v => v is not null),
-                SourceWidth: parts.Select(m => m.SourceWidth).FirstOrDefault(w => w is not null)));
+                SourceWidth: parts.Select(m => m.SourceWidth).FirstOrDefault(w => w is not null),
+                PreviousKeys: previous?.Keys));
         }
 
         return infos;
@@ -424,6 +425,28 @@ public static partial class ScoreLayoutEngine
 
     private static double KeySignatureWidth(MeasureInfo m) => m.Keys.Select(KeySignatureWidth).DefaultIfEmpty(0).Max();
 
+    /// <summary>Gap between the naturals that cancel the old key and the new key's accidentals, in staff spaces.</summary>
+    private const double KeyCancelGap = 0.5;
+
+    /// <summary>
+    /// How many of the old key's accidentals a key change cancels with naturals: all of them for C major or a change
+    /// between sharps and flats, else those the new key drops.
+    /// </summary>
+    private static int CancelledAccidentals(int from, int to)
+    {
+        var (old, kept) = (Math.Min(Math.Abs(from), 7), Math.Min(Math.Abs(to), 7));
+        if (from == 0) return 0;
+        return to == 0 || Math.Sign(from) != Math.Sign(to) ? old : Math.Max(0, old - kept);
+    }
+
+    /// <summary>Width of a key change in mid-score: the naturals, a gap, and the new key; the widest part counts.</summary>
+    private static double KeyChangeWidth(MeasureInfo m) =>
+        m.Keys.Select((key, p) =>
+        {
+            var cancelled = m.PreviousKeys is { } previous && p < previous.Length ? CancelledAccidentals(previous[p], key) : 0;
+            return cancelled + KeySignatureWidth(key) + (cancelled > 0 && key != 0 ? KeyCancelGap : 0);
+        }).DefaultIfEmpty(0).Max();
+
     /// <summary>
     /// Header at the start of a system, in staff spaces: clef, key signature (repeated on every system) and the time
     /// signature when it starts or changes in the system's first measure.
@@ -443,7 +466,7 @@ public static partial class ScoreLayoutEngine
     private static double MeasurePrefixWidth(MeasureInfo m)
     {
         var width = m.ClefChangeAtStart ? NotePreparation.ClefChangeWidth : 0.0;
-        if (m.KeyChanges) width += KeySignatureWidth(m) + 1;
+        if (m.KeyChanges) width += KeyChangeWidth(m) + 1;
         if (m.ShowsTimeSignature) width += TimeSignatureWidth(m) + 1;
         if (width > 0) width += 1;
 
@@ -752,8 +775,8 @@ public static partial class ScoreLayoutEngine
                 if (info.KeyChanges)
                 {
                     var clefsHere = slots.Select(s => clefs.ClefAt(s.PartIndex, s.StaffIndex, index, Rational.Zero)).ToArray();
-                    DrawKeySignature(items, slots, clefsHere, staffTops, info.Keys, prefixX, sp);
-                    prefixX += (KeySignatureWidth(info) + 1) * sp;
+                    DrawKeyChange(items, slots, clefsHere, staffTops, info.PreviousKeys, info.Keys, prefixX, sp);
+                    prefixX += (KeyChangeWidth(info) + 1) * sp;
                 }
 
                 if (info.ShowsTimeSignature)
@@ -803,6 +826,24 @@ public static partial class ScoreLayoutEngine
             var positions = Notation.KeySignaturePositions(fifths, clefs[i]);
             for (var a = 0; a < positions.Count; a++)
                 items.Add(new GlyphItem(glyph, x + a * sp, StaffY(staffTops[i], positions[a], sp), 4 * sp));
+        }
+    }
+
+    /// <summary>A key change in mid-score: naturals cancelling the old key's dropped accidentals, then the new key.</summary>
+    private static void DrawKeyChange(
+        List<DrawItem> items, List<StaffSlot> slots, ClefType[] clefs, double[] staffTops, int[]? previous, int[] keys, double x, double sp)
+    {
+        for (var i = 0; i < slots.Count; i++)
+        {
+            var (from, to) = (previous?[slots[i].PartIndex] ?? 0, keys[slots[i].PartIndex]);
+            var cancelled = CancelledAccidentals(from, to);
+            var positions = Notation.KeySignaturePositions(from, clefs[i]);
+            var naturals = positions.Skip(positions.Count - cancelled).ToList();
+            for (var a = 0; a < naturals.Count; a++)
+                items.Add(new GlyphItem(Smufl.AccidentalNatural, x + a * sp, StaffY(staffTops[i], naturals[a], sp), 4 * sp));
+
+            var keyX = x + (cancelled > 0 && to != 0 ? cancelled + KeyCancelGap : cancelled) * sp;
+            DrawKeySignature(items, new List<StaffSlot> { slots[i] }, new[] { clefs[i] }, new[] { staffTops[i] }, keys, keyX, sp);
         }
     }
 
