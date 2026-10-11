@@ -11,6 +11,9 @@ public static partial class ScoreLayoutEngine
     /// <summary>Height of a hyphen above the baseline, in lyric font sizes: the middle of Hangul syllables.</summary>
     private const double HyphenHeight = 0.35;
 
+    /// <summary>Height of a hyphen between Latin syllables: the middle of lowercase letters.</summary>
+    private const double LatinHyphenHeight = 0.25;
+
     /// <summary>Distance between verse lines, in lyric font sizes.</summary>
     private const double VerseLineSpacing = 1.4;
 
@@ -21,10 +24,12 @@ public static partial class ScoreLayoutEngine
     /// Draws the lyrics of one system: every verse of every staff on its own line, syllables centred under their notes
     /// (a syllable with an extender starts at its note), hyphens between the syllables of a word and extender lines
     /// under held notes. A verse line sits where the source puts most of its syllables in this system; without source
-    /// positions it goes under the staff, clear of the lowest note or stem.
+    /// positions it goes under the staff, clear of the lowest note or stem. <paramref name="serif"/>: the source's lyric
+    /// font is a serif one, so the syllables are drawn and measured in the serif lyric font.
     /// </summary>
     private static void DrawLyrics(
-        List<DrawItem> items, List<PlacedChord> placed, List<PlacedRest> rests, double[] staffTops, double systemRight, double size, double sp)
+        List<DrawItem> items, List<PlacedChord> placed, List<PlacedRest> rests, double[] staffTops, double systemRight, double size,
+        bool serif, double sp)
     {
         foreach (var staff in placed.Where(p => p.Chord.Lyrics.Count > 0).GroupBy(p => p.Slot))
         {
@@ -42,13 +47,13 @@ public static partial class ScoreLayoutEngine
                 var spans = new List<(double Left, double Right)>();
                 foreach (var (chord, lyric) in syllables)
                 {
-                    var width = TextMetrics.Width(lyric.Text, size);
+                    var width = TextMetrics.Width(lyric.Text, size, serif);
                     var head = Smufl.NoteheadWidth(chord.Chord.Value.Type) * sp;
                     var centre = chord.X + head / 2;
                     var left = lyric.Extend ? chord.X : centre - width / 2;
                     items.Add(lyric.Extend
-                        ? new TextItem(lyric.Text, left, baseline, size, TextAnchor.Start)
-                        : new TextItem(lyric.Text, centre, baseline, size, TextAnchor.Middle));
+                        ? new TextItem(lyric.Text, left, baseline, size, TextAnchor.Start, Serif: serif)
+                        : new TextItem(lyric.Text, centre, baseline, size, TextAnchor.Middle, Serif: serif));
                     spans.Add((left, left + width));
                 }
 
@@ -63,8 +68,9 @@ public static partial class ScoreLayoutEngine
                         // Centred in the gap to the next syllable, or just after this one when the word goes on in the next system.
                         var hyphen = 0.4 * size;
                         var centre = hasNext ? (right + spans[i + 1].Left) / 2 : right + 0.6 * size;
+                        var height = (lyric.Text.Any(TextMetrics.IsHangul) ? HyphenHeight : LatinHyphenHeight) * size;
                         if ((!hasNext || spans[i + 1].Left - right > hyphen) && centre + hyphen / 2 <= systemRight)
-                            items.Add(new LineItem(centre - hyphen / 2, baseline - HyphenHeight * size, centre + hyphen / 2, baseline - HyphenHeight * size, 0.06 * size));
+                            items.Add(new LineItem(centre - hyphen / 2, baseline - height, centre + hyphen / 2, baseline - height, 0.06 * size));
                     }
 
                     if (lyric.Extend)

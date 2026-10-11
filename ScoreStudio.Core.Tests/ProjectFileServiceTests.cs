@@ -249,7 +249,7 @@ public sealed class ProjectFileServiceTests : IDisposable
     public void SaveThenLoad_PreservesSourceLayout()
     {
         var project = ScoreProject.CreateNew();
-        project.Engraving = new ScoreEngraving { StaffSpace = 1.98, MarginLeft = 20, MarginRight = 21, MarginTop = 22, MarginBottom = 23, SystemDistance = 7.2, TopSystemDistance = 3.3, StaffDistance = 8, LyricFontSize = 4 };
+        project.Engraving = new ScoreEngraving { StaffSpace = 1.98, MarginLeft = 20, MarginRight = 21, MarginTop = 22, MarginBottom = 23, SystemDistance = 7.2, TopSystemDistance = 3.3, StaffDistance = 8, LyricFontSize = 4, LyricFontFamily = "Times New Roman" };
         project.Parts[0].Measures[0].Events.Add(new ScoreEvent { Lyrics = { new ScoreLyric { Text = "가", Y = -9.2 } }, ExtendEnds = { 2 } });
         project.Parts[0].Measures[0].ChordSymbols.Add(new ScoreChordSymbol { RootStep = "F", Text = "F", Y = 2.6 });
         var measure = project.Parts[0].Measures[1];
@@ -266,6 +266,7 @@ public sealed class ProjectFileServiceTests : IDisposable
         var m = loaded.Parts[0].Measures[1];
         Assert.Equal((17.4, 31.3, 14.5), (m.SystemDistance, m.TopSystemDistance, m.StaffDistances.Single().Distance));
         Assert.Equal(4, e.LyricFontSize);
+        Assert.Equal("Times New Roman", e.LyricFontFamily);
         Assert.Equal(-9.2, loaded.Parts[0].Measures[0].Events[0].Lyrics.Single().Y);
         Assert.Equal(new[] { 2 }, loaded.Parts[0].Measures[0].Events[0].ExtendEnds);
         Assert.Equal(2.6, loaded.Parts[0].Measures[0].ChordSymbols.Single().Y);
@@ -387,6 +388,9 @@ public sealed class ProjectFileServiceTests : IDisposable
         { """{ "SchemaVersion": 9, "Parts": [ { "Measures": [ { "Events": [ { "Lyrics": [ { "Text": "가", "Y": 900 } ] } ] } ] } ] }""", "가사 정보" },
         { """{ "SchemaVersion": 10, "Parts": [ { "Measures": [ { "ChordSymbols": [ { "RootStep": "C", "Y": -500 } ] } ] } ] }""", "1번째 코드 이름" },
         { """{ "SchemaVersion": 11, "Parts": [ { "Measures": [ { "Events": [ { "ExtendEnds": [ 0 ] } ] } ] } ] }""", "가사 정보" },
+        { """{ "SchemaVersion": 12, "Engraving": { "LyricFontFamily": "" } }""", "페이지 배치 정보" },
+        { """{ "SchemaVersion": 12, "Engraving": { "LyricFontFamily": "Times\nNew Roman" } }""", "페이지 배치 정보" },
+        { "{ \"SchemaVersion\": 12, \"Engraving\": { \"LyricFontFamily\": \"" + new string('a', 101) + "\" } }", "페이지 배치 정보" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": "Percussion" } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": 7 } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
     };

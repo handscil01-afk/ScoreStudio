@@ -40,7 +40,8 @@ public sealed record CurveItem(
 public sealed record GlyphItem(char Glyph, double X, double Y, double Size) : DrawItem;
 
 /// <summary>Plain text such as titles and part names. <paramref name="Y"/> is the text baseline.</summary>
-public sealed record TextItem(string Text, double X, double Y, double Size, TextAnchor Anchor, bool Bold = false) : DrawItem;
+/// <param name="Serif">Drawn in the serif lyric font instead of the sans-serif text font.</param>
+public sealed record TextItem(string Text, double X, double Y, double Size, TextAnchor Anchor, bool Bold = false, bool Serif = false) : DrawItem;
 
 /// <summary>Which point of the text <see cref="TextItem.X"/> refers to.</summary>
 public enum TextAnchor

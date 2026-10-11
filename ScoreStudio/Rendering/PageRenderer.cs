@@ -17,6 +17,10 @@ public static class PageRenderer
     private static readonly Typeface BoldTextTypeface = new(new FontFamily("Segoe UI, Malgun Gothic"),
         FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
 
+    /// <summary>Lyrics whose source font is a serif one; Times New Roman matches the widths the layout measures with.</summary>
+    private static readonly Typeface SerifTextTypeface = new(new FontFamily("Times New Roman, Batang"),
+        FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+
     public static void Render(DrawingContext dc, PageLayout page, double pixelsPerDip)
     {
         dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, page.Width * DipPerMm, page.Height * DipPerMm));
@@ -77,7 +81,8 @@ public static class PageRenderer
                     break;
 
                 case TextItem text:
-                    var formatted = Format(text.Text, text.Bold ? BoldTextTypeface : TextTypeface, text.Size, pixelsPerDip);
+                    var typeface = text.Serif ? SerifTextTypeface : text.Bold ? BoldTextTypeface : TextTypeface;
+                    var formatted = Format(text.Text, typeface, text.Size, pixelsPerDip);
                     var x = text.X * DipPerMm - text.Anchor switch
                     {
                         TextAnchor.Middle => formatted.WidthIncludingTrailingWhitespace / 2,

@@ -287,6 +287,11 @@ public static class MusicXmlImporter
             && points is >= 3 and <= 56)
             engraving.LyricFontSize = points * 25.4 / 72;
 
+        // A family list ("Times New Roman, serif") names the font first.
+        var family = ((string?)defaults.Element("lyric-font")?.Attribute("font-family"))?.Split(',')[0].Trim().Trim('"', '\'').Trim();
+        if (!string.IsNullOrEmpty(family) && family.Length <= ProjectFileService.MaxFontFamilyLength && !family.Any(char.IsControl))
+            engraving.LyricFontFamily = family;
+
         project.Engraving = engraving;
     }
 

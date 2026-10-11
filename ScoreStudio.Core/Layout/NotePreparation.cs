@@ -115,6 +115,9 @@ internal static class NotePreparation
     public const double AccidentalColumnWidth = 1.1;
     public const double AccidentalGap = 0.25;
 
+    /// <summary>Space between the barline (or the header) and the first note of a measure, in staff spaces.</summary>
+    public const double MeasureLeftPadding = 1.2;
+
     /// <summary>Room for a clef change before a note in mid-measure, in staff spaces.</summary>
     public const double ClefChangeWidth = 2.6;
 
@@ -122,6 +125,7 @@ internal static class NotePreparation
     public static PreparedMeasure[] Prepare(ScoreProject project, int measureCount, ClefTimeline clefs, double lyricSize)
     {
         var measures = new PreparedMeasure[measureCount];
+        var lyricSerif = TextMetrics.IsSerifFamily(project.Engraving?.LyricFontFamily);
         var tiedFromPrevious = new HashSet<(int Part, int Staff, int Voice, int Midi)>();
         var chordsByMeasure = Enumerable.Range(0, measureCount).Select(_ => new List<PreparedChord>()).ToArray();
         var beamsByMeasure = Enumerable.Range(0, measureCount).Select(_ => new List<PreparedBeam>()).ToArray();
@@ -150,7 +154,7 @@ internal static class NotePreparation
         for (var m = 0; m < measureCount; m++)
         {
             measures[m] = Space(chordsByMeasure[m], beamsByMeasure[m], midClefs[m], lengths[m] == default ? new Rational(4, 1) : lengths[m],
-                lyricSize, symbolsByMeasure[m]);
+                lyricSize, lyricSerif, symbolsByMeasure[m]);
         }
 
         return measures;
@@ -441,7 +445,7 @@ internal static class NotePreparation
     /// </summary>
     private static PreparedMeasure Space(
         List<PreparedChord> chords, List<PreparedBeam> beams, List<MidMeasureClef> midClefs, Rational length, double lyricSize,
-        List<(int, ScoreChordSymbol)> chordSymbols)
+        bool lyricSerif, List<(int, ScoreChordSymbol)> chordSymbols)
     {
         var onsets = chords.Where(c => !c.IsMeasureRest).Select(c => c.Start).Distinct().OrderBy(t => t).ToList();
         if (onsets.Count == 0 && chords.Count > 0)
@@ -458,12 +462,19 @@ internal static class NotePreparation
         var minSegments = new double[onsets.Count];
         var lyricLeft = new double[onsets.Count];
         var lyricRight = new double[onsets.Count];
+        // Latin-script words split over notes need their hyphens to read as one word, so the hyphen gets room. Hangul
+        // syllables read on their own, so there (as in Finale) a hyphen only shows where the spacing leaves room.
+        var wordGoesOn = new bool[onsets.Count]; // a Latin syllable here is followed by a hyphen
+        var wordCameFrom = new bool[onsets.Count]; // a Latin syllable here follows a hyphen
         for (var i = 0; i < onsets.Count; i++)
         {
             foreach (var chord in chords.Where(c => c.Start == onsets[i] && !c.IsRest))
             {
-                var (left, right) = LyricExtent(chord, lyricSize);
+                var (left, right) = LyricExtent(chord, lyricSize, lyricSerif);
                 (lyricLeft[i], lyricRight[i]) = (Math.Max(lyricLeft[i], left), Math.Max(lyricRight[i], right));
+                var latin = chord.Lyrics.Where(l => !l.Text.Any(TextMetrics.IsHangul)).ToList();
+                wordGoesOn[i] |= latin.Any(l => l.Syllabic is LyricSyllabic.Begin or LyricSyllabic.Middle);
+                wordCameFrom[i] |= latin.Any(l => l.Syllabic is LyricSyllabic.Middle or LyricSyllabic.End);
             }
         }
 
@@ -480,14 +491,32 @@ internal static class NotePreparation
             minSegments[i] = Math.Max(MinimumGapScale * gap, needed);
         }
 
-        // A syllable must clear the next syllable (or the barline): the gaps between the two onsets, held notes included,
-        // grow in proportion until they are wide enough.
+        // A syllable must clear the next syllable, by room for a hyphen inside a word: the gaps between the two onsets,
+        // held notes included, grow in proportion until they are wide enough. Across a barline each side keeps half that
+        // room on its own side, so the last syllable of a measure and the first of the next never meet whatever the
+        // neighbouring measure holds.
+        double Gap(bool hyphen) => (hyphen ? HyphenatedLyricGap : LyricGap) * lyricSize;
+        var first = Enumerable.Range(0, onsets.Count).FirstOrDefault(i => lyricRight[i] > 0, -1);
+        if (first >= 0)
+        {
+            var lead = lyricLeft[first] + Gap(wordCameFrom[first]) / 2 - MeasureLeftPadding;
+            if (first == 0)
+            {
+                pre[0] = Math.Max(pre[0], lead);
+            }
+            else
+            {
+                Widen(segments, 0, first, lead);
+                Widen(minSegments, 0, first, lead);
+            }
+        }
+
         for (var i = 0; i < onsets.Count; i++)
         {
             if (lyricRight[i] <= 0) continue;
             var next = i + 1;
             while (next < onsets.Count && lyricRight[next] <= 0) next++;
-            var need = lyricRight[i] + (next < onsets.Count ? lyricLeft[next] + LyricGap * lyricSize : 0);
+            var need = lyricRight[i] + (next < onsets.Count ? lyricLeft[next] + Gap(wordGoesOn[i]) : Gap(wordGoesOn[i]) / 2);
             Widen(segments, i, next, need);
             Widen(minSegments, i, next, need);
         }
@@ -523,9 +552,15 @@ internal static class NotePreparation
     public const double MinimumGapScale = 0.6;
 
     /// <summary>
-    /// Least gap between two syllables, in ems. Like Finale's smart hyphens, a hyphen is only drawn where the gap is wider.
+    /// Least gap between two syllables of different words, in ems. Like Finale's smart hyphens, a hyphen is only drawn
+    /// where the gap is wider than the hyphen (within a Latin-script word the gap is <see cref="HyphenatedLyricGap"/>).
     /// </summary>
     public const double LyricGap = 0.3;
+
+    /// <summary>
+    /// Least gap between two syllables of one Latin-script word, in ems: room for the hyphen (0.4 em) and a little on each side.
+    /// </summary>
+    public const double HyphenatedLyricGap = 0.8;
 
     private static Rational Position(ScoreChordSymbol symbol) => new(symbol.PositionNumerator, symbol.PositionDenominator);
 
@@ -570,15 +605,16 @@ internal static class NotePreparation
 
     /// <summary>
     /// How far a chord's syllables reach left and right of its onset, in staff spaces. Syllables are centred under the
-    /// notehead; a syllable with an extender line starts at the notehead instead.
+    /// notehead; a syllable with an extender line starts at the notehead instead. <paramref name="serif"/>: measured in
+    /// the serif lyric font.
     /// </summary>
-    public static (double Left, double Right) LyricExtent(PreparedChord chord, double lyricSize)
+    public static (double Left, double Right) LyricExtent(PreparedChord chord, double lyricSize, bool serif)
     {
         var head = Smufl.NoteheadWidth(chord.Value.Type);
         var (left, right) = (0.0, 0.0);
         foreach (var lyric in chord.Lyrics)
         {
-            var width = TextMetrics.Width(lyric.Text, lyricSize);
+            var width = TextMetrics.Width(lyric.Text, lyricSize, serif);
             if (lyric.Extend)
             {
                 right = Math.Max(right, width);

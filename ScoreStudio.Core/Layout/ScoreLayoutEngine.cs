@@ -95,8 +95,7 @@ public static partial class ScoreLayoutEngine
         public int MeasureCount => Measures.Count;
     }
 
-    /// <summary>Space between the barline (or the header) and the first note of a measure, in staff spaces.</summary>
-    private const double MeasureLeftPadding = 1.2;
+    private const double MeasureLeftPadding = NotePreparation.MeasureLeftPadding;
 
     /// <summary>Narrowest measure that holds notes, in staff spaces.</summary>
     private const double MeasureMinContentWidth = 8;
@@ -418,7 +417,8 @@ public static partial class ScoreLayoutEngine
         var segments = measure.Segments.Sum();
         var fixedPart = MeasureLeftPadding + measure.Pre.Sum();
         var width = Math.Max(fixedPart + segments, MeasureMinContentWidth);
-        var narrowest = Math.Max(fixedPart + measure.MinSegments.Sum(), MeasureMinContentWidth);
+        // The floor for short measures gives way like the gaps do (Finale sets a lone dotted half in 6/8 under 7 spaces).
+        var narrowest = Math.Max(fixedPart + measure.MinSegments.Sum(), NotePreparation.MinimumGapScale * MeasureMinContentWidth);
         return (width, segments, Math.Max(0, width - narrowest));
     }
 
@@ -645,7 +645,7 @@ public static partial class ScoreLayoutEngine
 
         DrawOctaveLines(items, placed, staffTops, sp);
         DrawTies(items, placed, slots, staffTops, left + plan.HeaderWidth, right, pendingTies, sp);
-        DrawLyrics(items, placed, rests, staffTops, right, lyricSize, sp);
+        DrawLyrics(items, placed, rests, staffTops, right, lyricSize, TextMetrics.IsSerifFamily(project.Engraving?.LyricFontFamily), sp);
         var symbolTops = DrawChordSymbols(items, symbols, placed, staffTops, lyricSize, sp);
         DrawVoltas(items, plan, measures, measureLayouts, placed, staffTops[0], symbolTops.TryGetValue(0, out var symbolTop) ? symbolTop : double.MaxValue, sp);
 

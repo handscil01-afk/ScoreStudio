@@ -9,7 +9,7 @@ namespace ScoreStudio.Models;
 public sealed class ScoreProject
 {
     /// <summary>The project file schema version this build reads and writes.</summary>
-    public const int CurrentSchemaVersion = 11;
+    public const int CurrentSchemaVersion = 12;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string Title { get; set; } = "새 악보";
@@ -81,6 +81,12 @@ public sealed class ScoreEngraving
 
     /// <summary>Lyric font size in millimetres (one em); null uses ScoreStudio's default.</summary>
     public double? LyricFontSize { get; set; }
+
+    /// <summary>
+    /// Lyric font family named by the source (the first of its list); null uses ScoreStudio's default. Lyrics in a known
+    /// serif family are drawn and measured in a serif font, others in the sans-serif text font.
+    /// </summary>
+    public string? LyricFontFamily { get; set; }
 }
 
 /// <summary>A staff's distance from the staff above it in the system that starts at this measure.</summary>

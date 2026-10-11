@@ -158,6 +158,7 @@ public sealed class PageRenderingTests
     [InlineData("page-layout")]
     [InlineData("lyrics-ties")]
     [InlineData("two-voices")]
+    [InlineData("latin-lyrics")]
     public void ImportedMusicXml_DrawsClefsAndNoteheadsWhereTheLayoutPutsThem(string sample)
     {
         RunSta(() =>

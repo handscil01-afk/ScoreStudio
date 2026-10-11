@@ -645,7 +645,7 @@ public sealed class NoteLayoutTests
             .Count(m => project.Parts.Any(p => m < p.Measures.Count && p.Measures[m].PageBreak));
         var layout = ScoreLayoutEngine.Layout(project);
 
-        Assert.Equal(sourcePages, layout.Pages.Count);
+        Assert.True(sourcePages == layout.Pages.Count, $"{Path.GetFileName(file)}: {layout.Pages.Count} pages, the source has {sourcePages}");
         Assert.All(layout.Pages.SelectMany(p => p.Systems), s => Assert.True(s.Bottom <= layout.Pages[0].Height - project.Engraving.MarginBottom + 1e-6));
     }
 
@@ -666,7 +666,7 @@ public sealed class NoteLayoutTests
             var lines = page.Items.OfType<TextItem>().Where(t => Math.Abs(t.Size - size) < 1e-9)
                 .Select(t =>
                 {
-                    var width = TextMetrics.Width(t.Text, t.Size);
+                    var width = TextMetrics.Width(t.Text, t.Size, t.Serif);
                     var left = t.Anchor == TextAnchor.Middle ? t.X - width / 2 : t.X;
                     return (t.Text, t.Y, Left: left, Right: left + width);
                 })
@@ -720,30 +720,32 @@ public sealed class NoteLayoutTests
     [MemberData(nameof(AllScores))]
     public void RestsAndNoteheadsDoNotCollide_InEveryScore(string file)
     {
-        var layout = ScoreLayoutEngine.Layout(MusicXmlImporter.ImportFile(file).Project);
+        var project = MusicXmlImporter.ImportFile(file).Project;
+        var layout = ScoreLayoutEngine.Layout(project);
+        var sp = SpaceOf(project);
         var collisions = new List<string>();
         foreach (var page in layout.Pages)
         {
             var glyphs = page.Items.OfType<GlyphItem>().ToList();
             var heads = glyphs.Where(g => Noteheads.Contains(g.Glyph))
-                .Select(g => (Glyph: g, Left: g.X, Right: g.X + Smufl.NoteheadWidth(HeadType(g.Glyph)) * Sp, Top: g.Y - 0.5 * Sp, Bottom: g.Y + 0.5 * Sp)).ToList();
+                .Select(g => (Glyph: g, Left: g.X, Right: g.X + Smufl.NoteheadWidth(HeadType(g.Glyph)) * sp, Top: g.Y - 0.5 * sp, Bottom: g.Y + 0.5 * sp)).ToList();
             var rests = glyphs.Where(g => g.Glyph >= Smufl.RestDoubleWhole && g.Glyph <= Smufl.RestDoubleWhole + 7)
                 .Select(g =>
                 {
                     var type = (NoteType)(g.Glyph - Smufl.RestDoubleWhole);
                     var (low, high) = Smufl.RestBounds(type);
-                    return (Glyph: g, Left: g.X, Right: g.X + Smufl.RestWidth(type) * Sp, Top: g.Y - high * Sp, Bottom: g.Y - low * Sp);
+                    return (Glyph: g, Left: g.X, Right: g.X + Smufl.RestWidth(type) * sp, Top: g.Y - high * sp, Bottom: g.Y - low * sp);
                 }).ToList();
 
-            static bool Overlap((GlyphItem Glyph, double Left, double Right, double Top, double Bottom) a, (GlyphItem Glyph, double Left, double Right, double Top, double Bottom) b) =>
-                Math.Min(a.Right, b.Right) - Math.Max(a.Left, b.Left) > 0.1 * Sp && Math.Min(a.Bottom, b.Bottom) - Math.Max(a.Top, b.Top) > 0.1 * Sp;
+            bool Overlap((GlyphItem Glyph, double Left, double Right, double Top, double Bottom) a, (GlyphItem Glyph, double Left, double Right, double Top, double Bottom) b) =>
+                Math.Min(a.Right, b.Right) - Math.Max(a.Left, b.Left) > 0.1 * sp && Math.Min(a.Bottom, b.Bottom) - Math.Max(a.Top, b.Top) > 0.1 * sp;
 
             foreach (var rest in rests)
                 foreach (var head in heads.Where(h => Overlap(rest, h)))
                     collisions.Add($"p{page.Number} rest at ({rest.Glyph.X:F1}, {rest.Glyph.Y:F1}) on a notehead at ({head.Glyph.X:F1}, {head.Glyph.Y:F1})");
 
             var dots = glyphs.Where(g => g.Glyph == Smufl.AugmentationDot)
-                .Select(g => (Glyph: g, Left: g.X, Right: g.X + Smufl.AugmentationDotWidth * Sp, Top: g.Y - 0.2 * Sp, Bottom: g.Y + 0.2 * Sp));
+                .Select(g => (Glyph: g, Left: g.X, Right: g.X + Smufl.AugmentationDotWidth * sp, Top: g.Y - 0.2 * sp, Bottom: g.Y + 0.2 * sp));
             foreach (var dot in dots)
                 foreach (var head in heads.Where(h => Overlap(dot, h)))
                     collisions.Add($"p{page.Number} dot at ({dot.Glyph.X:F1}, {dot.Glyph.Y:F1}) on a notehead at ({head.Glyph.X:F1}, {head.Glyph.Y:F1})");
@@ -798,6 +800,59 @@ public sealed class NoteLayoutTests
         Assert.True(RestIn(measures[5], NoteType.Whole).Bottom < HeadsIn(measures[5]).Min(h => h.Y) - 0.5 * Sp);
     }
 
+    [Fact]
+    public void LatinLyrics_InASerifSourceFont_AreSerif_AndKeepApartAcrossTheBarline()
+    {
+        var (page, measures) = SampleMeasures("latin-lyrics.musicxml");
+        var size = 12 * 25.4 / 72;
+        var lyrics = page.Items.OfType<TextItem>().Where(t => Math.Abs(t.Size - size) < 1e-9).ToList();
+        Assert.Equal(11, lyrics.Count);
+        Assert.All(lyrics, t => Assert.True(t.Serif, t.Text));
+
+        // The last syllable of measure 1 and the first of measure 2 each keep half the least gap from the barline.
+        (double Left, double Right) Span(string text)
+        {
+            var t = lyrics.Single(l => l.Text == text);
+            var width = TextMetrics.Width(t.Text, t.Size, serif: true);
+            return (t.X - width / 2, t.X + width / 2);
+        }
+
+        var barline = measures[0].Right;
+        var halfGap = 0.3 * size / 2; // half the least gap between syllables (0.3 em)
+        Assert.True(Span("wondrous").Right <= barline - halfGap + 1e-6, $"{Span("wondrous").Right:F2} vs barline {barline:F2}");
+        Assert.True(Span("Mighty").Left >= barline + halfGap - 1e-6, $"{Span("Mighty").Left:F2} vs barline {barline:F2}");
+
+        // Hyphens between Latin syllables sit at the middle of the lowercase letters.
+        var baseline = lyrics[0].Y;
+        var hyphens = page.Items.OfType<LineItem>().Where(l => l.Y1 == l.Y2 && Math.Abs(l.Thickness - 0.06 * size) < 1e-9).ToList();
+        Assert.Equal(5, hyphens.Count);
+        Assert.All(hyphens, h => Assert.Equal(baseline - 0.25 * size, h.Y1, 6));
+    }
+
+    [Theory]
+    [InlineData("Times New Roman", true)]
+    [InlineData("Adobe Garamond Pro", true)]
+    [InlineData("Finale Lyrics", true)]
+    [InlineData("Noto Serif CJK KR", true)]
+    [InlineData("바탕", true)]
+    [InlineData("Arial", false)]
+    [InlineData("Microsoft Sans Serif", false)]
+    [InlineData("맑은 고딕", false)]
+    [InlineData(null, false)]
+    public void SerifFamilies_AreRecognisedByName(string? family, bool serif) => Assert.Equal(serif, TextMetrics.IsSerifFamily(family));
+
+    [Fact]
+    public void SerifWidths_FollowTimesNewRoman()
+    {
+        Assert.Equal(2.444, TextMetrics.Width("macht", 1, serif: true), 6);
+        Assert.Equal(TextMetrics.Width("Glo", 1, serif: true), TextMetrics.Width("Glö", 1, serif: true), 6);
+        Assert.Equal(2, TextMetrics.Width("가나", 1, serif: true), 6);
+        Assert.True(TextMetrics.Width("macht", 1) > TextMetrics.Width("macht", 1, serif: true));
+    }
+
+    /// <summary>The staff space a score is laid out with: the source's, or the default.</summary>
+    private static double SpaceOf(ScoreProject project) => project.Engraving?.StaffSpace ?? Sp;
+
     private static NoteType HeadType(char glyph) => glyph switch
     {
         Smufl.NoteheadDoubleWhole => NoteType.Breve,
@@ -811,7 +866,9 @@ public sealed class NoteLayoutTests
     [MemberData(nameof(AllScores))]
     public void BeamedStemsEndOnTheirBeam_AndHaveNoFlag_InEveryScore(string file)
     {
-        var layout = ScoreLayoutEngine.Layout(MusicXmlImporter.ImportFile(file).Project);
+        var project = MusicXmlImporter.ImportFile(file).Project;
+        var layout = ScoreLayoutEngine.Layout(project);
+        var sp = SpaceOf(project);
         var name = Path.GetFileName(file);
         foreach (var page in layout.Pages)
         {
@@ -820,7 +877,8 @@ public sealed class NoteLayoutTests
 
             // Stems are vertical lines as thick as a stem and at least two spaces long (octave-line hooks are one space).
             var stems = page.Items.OfType<LineItem>().Where(l => l.X1 == l.X2
-                && Math.Abs(l.Thickness - Smufl.StemThickness * Sp) < 1e-9 && Math.Abs(l.Y2 - l.Y1) > 2 * Sp);
+                && Math.Abs(l.Thickness - Smufl.StemThickness * sp) < 1e-9 && Math.Abs(l.Y2 - l.Y1) > 2 * sp).ToList();
+            Assert.True(beams.Count == 0 || stems.Count > 0, $"{name} p{page.Number}: beams but no stems found");
             foreach (var stem in stems)
             {
                 // A stem's beams are the ones it runs into (beams of other staves nearby do not count).
@@ -833,7 +891,7 @@ public sealed class NoteLayoutTests
 
                 var outer = up ? onStem.Min(b => TopEdgeAt(b, stem.X1)) : onStem.Max(b => TopEdgeAt(b, stem.X1) + b.Thickness);
                 Assert.True(Math.Abs(outer - tip) < 1e-6, $"{name} p{page.Number}: stem at ({stem.X1:F1}, {tip:F1}) mm misses its beam at {outer:F1}");
-                Assert.DoesNotContain(flags, f => Math.Abs(f.X - (stem.X1 - stem.Thickness / 2)) < 1e-6 && Math.Abs(f.Y - tip) < 2 * Sp);
+                Assert.DoesNotContain(flags, f => Math.Abs(f.X - (stem.X1 - stem.Thickness / 2)) < 1e-6 && Math.Abs(f.Y - tip) < 2 * sp);
             }
         }
     }

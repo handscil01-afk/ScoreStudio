@@ -324,6 +324,25 @@ public sealed class MusicXmlImporterTests : IDisposable
         Assert.Equal(new double?[] { -9.2, 2.5, null }, lyrics.Select(l => l.Y));
         Assert.Equal(new[] { 2 }, project.Parts[0].Measures[0].Events[1].ExtendEnds);
         Assert.Equal(11.3 * 25.4 / 72, project.Engraving!.LyricFontSize!.Value, 9);
+        Assert.Equal("Finale Lyrics", project.Engraving.LyricFontFamily);
+    }
+
+    [Theory]
+    [InlineData("Times New Roman", "Times New Roman")]
+    [InlineData("'Adobe Garamond Pro', serif", "Adobe Garamond Pro")]
+    [InlineData(" ", null)]
+    public void LyricFont_TheFirstFamilyOfTheListIsKept(string attribute, string? expected)
+    {
+        var xml = $$"""
+            <score-partwise version="4.0">
+              <defaults><scaling><millimeters>7</millimeters><tenths>40</tenths></scaling><lyric-font font-family="{{attribute}}" font-size="12"/></defaults>
+              <part-list><score-part id="P1"><part-name>S</part-name></score-part></part-list>
+              <part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes>
+                <note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure></part>
+            </score-partwise>
+            """;
+
+        Assert.Equal(expected, MusicXmlImporter.ImportXml(xml, "font").Project.Engraving!.LyricFontFamily);
     }
 
     [Fact]

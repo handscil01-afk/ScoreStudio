@@ -146,6 +146,9 @@ public static class ProjectFileService
     /// <summary>Beams for notes down to 256ths: more levels than that do not exist in notation.</summary>
     private const int MaxBeamLevels = 6;
 
+    /// <summary>Longest font family name kept from a source file.</summary>
+    public const int MaxFontFamilyLength = 100;
+
     /// <summary>Fills in missing optional values and rejects data that would break later code.</summary>
     private static void Validate(ScoreProject project)
     {
@@ -160,7 +163,8 @@ public static class ProjectFileService
                 || !InRange(engraving.MarginTop, 0, 100) || !InRange(engraving.MarginBottom, 0, 100)
                 || !InRange(engraving.SystemDistance, 0, MaxDistance) || !InRange(engraving.TopSystemDistance, 0, MaxDistance)
                 || !InRange(engraving.StaffDistance, 0, MaxDistance)
-                || (engraving.LyricFontSize is { } lyricSize && !InRange(lyricSize, 1, 20))))
+                || (engraving.LyricFontSize is { } lyricSize && !InRange(lyricSize, 1, 20))
+                || (engraving.LyricFontFamily is { } family && (family.Length is 0 or > MaxFontFamilyLength || family.Any(char.IsControl)))))
             throw Corrupt("페이지 배치 정보(보표 크기, 여백, 간격)가 올바르지 않습니다.");
 
         for (var g = 0; g < project.PartGroups.Count; g++)
