@@ -1,10 +1,13 @@
+using System.ComponentModel;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
+using ScoreStudio.Editing;
 using ScoreStudio.Import;
+using ScoreStudio.KeyInput;
 using ScoreStudio.Layout;
 using ScoreStudio.Models;
 using ScoreStudio.Rendering;
@@ -14,29 +17,59 @@ namespace ScoreStudio;
 
 public partial class MainWindow : Window
 {
-    private ScoreProject _project = ScoreProject.CreateNew();
+    private ScoreEditor _editor = new(ScoreProject.CreateNew());
+    private ScoreLayout? _layout;
+    private readonly List<PageView> _pageViews = new();
+    private int _savedChangeCount;
     private bool _updatingUi;
 
     private static readonly double[] ZoomLevels = { 0.5, 0.75, 1, 1.25, 1.5, 2, 3 };
 
     private double _zoom = 1;
 
+    private ScoreProject Project => _editor.Project;
+
+    /// <summary>Edits since the last save, new score or open (an undo back to the saved state still counts).</summary>
+    private bool HasUnsavedEdits => _editor.ChangeCount != _savedChangeCount;
+
     public MainWindow()
     {
         InitializeComponent();
         SetZoom(1);
         ApplyProjectToUi();
+        Loaded += (_, _) => ScoreScroll.Focus();
+    }
+
+    private void UseProject(ScoreProject project)
+    {
+        _editor = new ScoreEditor(project);
+        _savedChangeCount = _editor.ChangeCount;
+        ApplyProjectToUi();
+    }
+
+    /// <summary>Asks before unsaved edits are thrown away; true when it is fine to go on.</summary>
+    private bool ConfirmDiscard()
+    {
+        if (!HasUnsavedEdits) return true;
+        return MessageBox.Show(this, "저장하지 않은 편집이 있습니다. 편집한 내용을 버리고 계속할까요?", "저장하지 않은 편집",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
+    }
+
+    private void Window_Closing(object? sender, CancelEventArgs e)
+    {
+        if (!ConfirmDiscard()) e.Cancel = true;
     }
 
     private void NewScore_Click(object sender, RoutedEventArgs e)
     {
-        _project = ScoreProject.CreateNew();
-        ApplyProjectToUi();
-        StatusText.Content = "새 악보를 만들었습니다.";
+        if (!ConfirmDiscard()) return;
+        UseProject(ScoreProject.CreateNew());
+        StatusText.Content = "새 악보를 만들었습니다. 음 이름(C~B) 키로 입력하세요.";
     }
 
     private void OpenProject_Click(object sender, RoutedEventArgs e)
     {
+        if (!ConfirmDiscard()) return;
         var dialog = new OpenFileDialog
         {
             Filter = "ScoreStudio 프로젝트 (*.scoreproj)|*.scoreproj|JSON 파일 (*.json)|*.json",
@@ -47,8 +80,7 @@ public partial class MainWindow : Window
 
         try
         {
-            _project = ProjectFileService.Load(dialog.FileName);
-            ApplyProjectToUi();
+            UseProject(ProjectFileService.Load(dialog.FileName));
             StatusText.Content = $"열기 완료: {System.IO.Path.GetFileName(dialog.FileName)}";
         }
         catch (Exception ex)
@@ -61,6 +93,7 @@ public partial class MainWindow : Window
 
     private void ImportMusicXml_Click(object sender, RoutedEventArgs e)
     {
+        if (!ConfirmDiscard()) return;
         var dialog = new OpenFileDialog
         {
             Filter = "MusicXML (*.musicxml;*.xml;*.mxl)|*.musicxml;*.xml;*.mxl|모든 파일 (*.*)|*.*",
@@ -81,8 +114,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        _project = result.Project;
-        ApplyProjectToUi();
+        UseProject(result.Project);
         var fileName = System.IO.Path.GetFileName(dialog.FileName);
         StatusText.Content = $"가져오기 완료: {fileName} (경고 {result.Warnings.Count}종류) · 보관하려면 저장하세요.";
         new ImportReportWindow(fileName, result) { Owner = this }.ShowDialog();
@@ -94,7 +126,7 @@ public partial class MainWindow : Window
         {
             Filter = "ScoreStudio 프로젝트 (*.scoreproj)|*.scoreproj",
             DefaultExt = ".scoreproj",
-            FileName = $"{SafeFileName(_project.Title)}.scoreproj",
+            FileName = $"{SafeFileName(Project.Title)}.scoreproj",
             Title = "프로젝트 저장"
         };
 
@@ -102,8 +134,9 @@ public partial class MainWindow : Window
 
         try
         {
-            _project.Title = TitleInput.Text.Trim();
-            ProjectFileService.Save(dialog.FileName, _project);
+            Project.Title = TitleInput.Text.Trim();
+            ProjectFileService.Save(dialog.FileName, Project);
+            _savedChangeCount = _editor.ChangeCount;
             RefreshTitle();
             StatusText.Content = $"저장 완료: {System.IO.Path.GetFileName(dialog.FileName)}";
         }
@@ -116,22 +149,137 @@ public partial class MainWindow : Window
 
     private void TitleInput_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (_project is null || _updatingUi) return;
-        _project.Title = TitleInput.Text;
+        if (_updatingUi) return;
+        Project.Title = TitleInput.Text;
         RefreshTitle();
         RefreshScore();
     }
 
     private void PageSizeInput_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_project is null || _updatingUi) return;
+        if (_updatingUi) return;
         if (sender is not ComboBox { SelectedItem: ComboBoxItem { Tag: string tag } }) return;
 
         var values = tag.Split('|');
-        _project.PageSize = values[0];
-        _project.Orientation = values[1];
+        Project.PageSize = values[0];
+        Project.Orientation = values[1];
         RefreshScore();
     }
+
+    // ---- Editing -------------------------------------------------------------------------------------------------
+
+    /// <summary>Shows the outcome of an editor command: redraws when the score changed, otherwise only the marks.</summary>
+    private void ShowEdit(EditResult result, int changesBefore)
+    {
+        StatusText.Content = result.Done ? result.Message : $"할 수 없음: {result.Message}";
+        if (_editor.ChangeCount != changesBefore)
+        {
+            RefreshParts();
+            RefreshScore();
+        }
+        else
+        {
+            RefreshMarks();
+        }
+
+        RefreshEditState();
+        BringCursorIntoView();
+    }
+
+    private void RunEdit(Func<ScoreEditor, EditResult> command)
+    {
+        var before = _editor.ChangeCount;
+        ShowEdit(command(_editor), before);
+        ScoreScroll.Focus();
+    }
+
+    private void Undo_Click(object sender, RoutedEventArgs e) => RunEdit(ed => ed.Undo());
+
+    private void Redo_Click(object sender, RoutedEventArgs e) => RunEdit(ed => ed.Redo());
+
+    private void CopyMeasure_Click(object sender, RoutedEventArgs e) => RunEdit(ed => ed.CopyMeasure());
+
+    private void PasteMeasure_Click(object sender, RoutedEventArgs e) => RunEdit(ed => ed.PasteMeasure());
+
+    private void InsertMeasure_Click(object sender, RoutedEventArgs e) => RunEdit(ed => ed.InsertMeasureAfter());
+
+    private void DeleteMeasure_Click(object sender, RoutedEventArgs e) => RunEdit(ed => ed.DeleteMeasure());
+
+    private void Rest_Click(object sender, RoutedEventArgs e) => RunEdit(ed => ed.EnterRest());
+
+    private void Dot_Click(object sender, RoutedEventArgs e) => RunEdit(ed => ed.ToggleDot());
+
+    private void Duration_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string tag } && Enum.TryParse<NoteType>(tag, out var type))
+            RunEdit(ed => ed.SetInputValue(type, 0));
+    }
+
+    private void KeyHelp_Click(object sender, RoutedEventArgs e)
+    {
+        MessageBox.Show(this,
+            "악보를 한 번 누른 뒤 키보드로 입력합니다.\n\n" +
+            "C D E F G A B : 그 음 입력 (조표를 따르고, 앞 음에 가까운 옥타브)\n" +
+            "Shift + 음 이름 : 선택한 화음에 음 더하기\n" +
+            "0 : 쉼표 입력\n" +
+            "7 6 5 4 3 2 : 온·2분·4분·8분·16분·32분음표 (Finale Speedy Entry와 같은 번호)\n" +
+            ". : 점 붙이기·떼기\n" +
+            "↑ ↓ : 반음 올리기·내리기, Ctrl + ↑ ↓ : 옥타브\n" +
+            "← → : 이전·다음 음표 선택\n" +
+            "Delete, Backspace : 선택한 음표를 쉼표로\n" +
+            "Ctrl+Z, Ctrl+Y : 실행 취소, 다시 실행\n" +
+            "Ctrl+C, Ctrl+V : 입력 위치의 마디 복사, 붙여넣기\n" +
+            "Esc : 선택 해제\n\n" +
+            "음표를 누르면 선택하고, 빈 곳을 누르면 그 마디에 입력 위치를 둡니다.\n" +
+            "음표를 선택한 상태에서 길이 키를 누르면 그 음표의 길이가 바뀝니다.",
+            "키보드 입력 방법", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void Score_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        ScoreScroll.Focus();
+        if (_layout is null || e.OriginalSource is not DependencyObject source) return;
+        var view = FindPageView(source);
+        if (view is null) return;
+
+        var point = e.GetPosition(view);
+        var (x, y) = (point.X / PageRenderer.DipPerMm, point.Y / PageRenderer.DipPerMm);
+        var sp = _layout.StaffSpace;
+        var before = _editor.ChangeCount;
+        if (LayoutHitTest.FindChord(view.Page, x, y, 0.4 * sp) is { } chord)
+        {
+            ShowEdit(_editor.Select(new EditPosition(chord.PartIndex, chord.Staff, chord.Voice, chord.MeasureIndex, chord.Start)), before);
+        }
+        else if (LayoutHitTest.FindStaffMeasure(view.Page, x, y, sp) is { } hit)
+        {
+            // The cursor goes before the nearest chord of the staff in that measure to the right of the click, else to
+            // the end of what is already entered (or the measure's start).
+            var boxes = view.Page.Chords.Where(c => c.PartIndex == hit.PartIndex && c.Staff == hit.Staff && c.MeasureIndex == hit.MeasureIndex && c.Voice == 1)
+                .OrderBy(c => c.Start).ToList();
+            var position = boxes.FirstOrDefault(c => c.Right >= x)?.Start ?? EndOfVoice(hit);
+            ShowEdit(_editor.PlaceCursor(hit.PartIndex, hit.Staff, hit.MeasureIndex, position), before);
+        }
+
+        e.Handled = true;
+    }
+
+    /// <summary>Where voice 1 of a staff ends in a measure: after its last chord, or the start of an empty measure.</summary>
+    private Rational EndOfVoice(StaffMeasureHit hit)
+    {
+        var measure = Project.Parts[hit.PartIndex].Measures[hit.MeasureIndex];
+        var end = measure.Events.Where(ev => ev.Staff == hit.Staff && ev.Voice == 1)
+            .Select(ev => new Rational(ev.PositionNumerator, ev.PositionDenominator) + new Rational(ev.DurationNumerator, ev.DurationDenominator))
+            .DefaultIfEmpty(Rational.Zero).Max();
+        return end < ScoreEditor.MeasureLength(measure) ? end : Rational.Zero;
+    }
+
+    private static PageView? FindPageView(DependencyObject? node)
+    {
+        while (node is not null and not PageView) node = VisualTreeHelper.GetParent(node);
+        return node as PageView;
+    }
+
+    // ---- Showing the project -------------------------------------------------------------------------------------
 
     /// <summary>Shows every value of the current project in the window.</summary>
     private void ApplyProjectToUi()
@@ -139,10 +287,10 @@ public partial class MainWindow : Window
         _updatingUi = true;
         try
         {
-            TitleInput.Text = _project.Title;
+            TitleInput.Text = Project.Title;
 
             // A page setting that is not in the list (e.g. from a newer file) is kept as is and shown as unselected.
-            var tag = $"{_project.PageSize}|{_project.Orientation}";
+            var tag = $"{Project.PageSize}|{Project.Orientation}";
             PageSizeInput.SelectedItem = PageSizeInput.Items
                 .OfType<ComboBoxItem>()
                 .FirstOrDefault(item => string.Equals(item.Tag as string, tag, StringComparison.OrdinalIgnoreCase));
@@ -155,9 +303,10 @@ public partial class MainWindow : Window
         RefreshTitle();
         RefreshParts();
         RefreshScore();
-        ImportStatusText.Text = string.IsNullOrWhiteSpace(_project.ImportedFrom)
+        RefreshEditState();
+        ImportStatusText.Text = string.IsNullOrWhiteSpace(Project.ImportedFrom)
             ? "MusicXML 가져오기 지원 · MUSX 미구현"
-            : $"가져온 원본: {System.IO.Path.GetFileName(_project.ImportedFrom)}";
+            : $"가져온 원본: {System.IO.Path.GetFileName(Project.ImportedFrom)}";
     }
 
     /// <summary>Lays the score out again and replaces the pages on screen.</summary>
@@ -165,13 +314,16 @@ public partial class MainWindow : Window
     {
         if (PagesPanel is null) return;
 
-        var layout = ScoreLayoutEngine.Layout(_project);
+        _layout = ScoreLayoutEngine.Layout(Project);
         PagesPanel.Children.Clear();
-        foreach (var page in layout.Pages)
+        _pageViews.Clear();
+        foreach (var page in _layout.Pages)
         {
+            var view = new PageView(page);
+            _pageViews.Add(view);
             PagesPanel.Children.Add(new Border
             {
-                Child = new PageView(page),
+                Child = view,
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0xCC, 0xD2, 0xD9)),
                 BorderThickness = new Thickness(1),
                 Margin = new Thickness(0, 0, 0, 24),
@@ -179,11 +331,57 @@ public partial class MainWindow : Window
             });
         }
 
-        var measureCount = _project.Parts.Count == 0 ? 0 : _project.Parts.Max(p => p.Measures.Count);
+        RefreshMarks();
+        RefreshInfo();
+    }
+
+    /// <summary>Moves the selection box and the cursor bar to where the editor has them.</summary>
+    private void RefreshMarks()
+    {
+        if (_layout is null) return;
+        var marks = EditMarks.Find(_layout, _editor.Selection, _editor.Cursor);
+        for (var p = 0; p < _pageViews.Count; p++)
+        {
+            _pageViews[p].SetMarks(
+                p == marks.SelectionPage ? marks.Selection : null,
+                p == marks.CursorPage ? (marks.CursorX, marks.CursorTop, marks.CursorBottom) : null);
+        }
+
+        RefreshInfo();
+    }
+
+    private void BringCursorIntoView()
+    {
+        if (_layout is null) return;
+        var marks = EditMarks.Find(_layout, _editor.Selection, _editor.Cursor);
+        if (marks.CursorPage < 0 || marks.CursorPage >= _pageViews.Count) return;
+        const double k = PageRenderer.DipPerMm;
+        _pageViews[marks.CursorPage].BringIntoView(new Rect((marks.CursorX - 20) * k, (marks.CursorTop - 10) * k, 40 * k, (marks.CursorBottom - marks.CursorTop + 20) * k));
+    }
+
+    private void RefreshEditState()
+    {
+        UndoMenuItem.IsEnabled = _editor.CanUndo;
+        RedoMenuItem.IsEnabled = _editor.CanRedo;
+        PasteMenuItem.IsEnabled = _editor.CanPaste;
+        InputValueText.Text = ScoreEditor.DescribeValue(_editor.InputType, _editor.InputDots, rest: false);
+        RefreshTitle();
+    }
+
+    private void RefreshInfo()
+    {
+        if (_layout is null || ScoreInfoText is null) return;
+        var measureCount = Project.Parts.Count == 0 ? 0 : Project.Parts.Max(p => p.Measures.Count);
+        var cursor = _editor.Cursor;
+        var where = cursor.Part < Project.Parts.Count && cursor.Measure < Project.Parts[cursor.Part].Measures.Count
+            ? $" · 입력 위치: {Project.Parts[cursor.Part].Measures[cursor.Measure].Number}마디 {(cursor.Position.ToDouble() + 1).ToString("0.##", CultureInfo.InvariantCulture)}박"
+            : "";
         ScoreInfoText.Content = MusicFont.Typeface is null
             ? $"악보 기호 글꼴({MusicFont.FileName})을 불러오지 못해 기호를 표시할 수 없습니다."
-            : $"{layout.Pages.Count}쪽 · {measureCount}마디 · 음표 {_project.Parts.SelectMany(p => p.Measures).Sum(m => m.Events.Count(ev => ev.Kind == "Note"))}개";
+            : $"{_layout.Pages.Count}쪽 · {measureCount}마디 · 음표 {Project.Parts.SelectMany(p => p.Measures).Sum(m => m.Events.Count(ev => ev.Kind == "Note"))}개{where}";
     }
+
+    // ---- Zoom ----------------------------------------------------------------------------------------------------
 
     private void SetZoom(double zoom)
     {
@@ -233,6 +431,18 @@ public partial class MainWindow : Window
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // Typing in the title box or a list stays there; everywhere else keys edit the score.
+        if (Keyboard.FocusedElement is not (TextBox or ComboBox or ComboBoxItem))
+        {
+            var before = _editor.ChangeCount;
+            if (EditorKeys.Handle(_editor, e.Key == Key.System ? e.SystemKey : e.Key, Keyboard.Modifiers) is { } result)
+            {
+                ShowEdit(result, before);
+                e.Handled = true;
+                return;
+            }
+        }
+
         if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
         switch (e.Key)
         {
@@ -251,11 +461,13 @@ public partial class MainWindow : Window
         }
     }
 
+    // ---- Side panels ---------------------------------------------------------------------------------------------
+
     private void RefreshParts()
     {
-        SidebarParts.Text = _project.Parts.Count == 0
+        SidebarParts.Text = Project.Parts.Count == 0
             ? "파트 없음"
-            : string.Join("\n", _project.Parts.Select((part, index) =>
+            : string.Join("\n", Project.Parts.Select((part, index) =>
                 $"{index + 1}. {(string.IsNullOrWhiteSpace(part.Name) ? "(이름 없음)" : part.Name)} · {DescribeStaves(part)} · {part.Measures.Count}마디"));
     }
 
@@ -283,14 +495,14 @@ public partial class MainWindow : Window
 
     private void RefreshTitle()
     {
-        if (SidebarTitle is not null) SidebarTitle.Text = _project.Title;
-        if (TitleInput is not null && Title != null) Title = $"{_project.Title} — ScoreStudio";
+        if (SidebarTitle is not null) SidebarTitle.Text = Project.Title;
+        Title = $"{(HasUnsavedEdits ? "* " : "")}{Project.Title} — ScoreStudio";
     }
 
     private void About_Click(object sender, RoutedEventArgs e)
     {
         MessageBox.Show(this,
-            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·조표·박자표·마디선·음표·쉼표·빔·붙임줄·가사·코드 이름·도돌이표·볼타·음자리표 변경·옥타브 기호, 여러 페이지, 확대/축소), MusicXML 가져오기\n아직 가져오지 않음: 셈여림, 이음줄, 아티큘레이션, 글자 지시(가져오기 결과 창에 경고로 표시)\n아직 지원하지 않음: 음표 입력, MUSX 변환, PDF 출력",
+            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·조표·박자표·마디선·음표·쉼표·빔·붙임줄·가사·코드 이름·도돌이표·볼타·음자리표 변경·옥타브 기호, 여러 페이지, 확대/축소), MusicXML 가져오기, 키보드로 음표·쉼표 입력과 고치기(실행 취소 포함)\n아직 가져오지 않음: 셈여림, 이음줄, 아티큘레이션, 글자 지시(가져오기 결과 창에 경고로 표시)\n아직 지원하지 않음: 마우스로 음높이 입력, 잇단음표·가사 입력, MUSX 변환, PDF 출력",
             "개발 상태", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 

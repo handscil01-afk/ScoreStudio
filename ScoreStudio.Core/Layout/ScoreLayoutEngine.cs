@@ -37,6 +37,9 @@ public sealed class LayoutOptions
 public sealed class ScoreLayout
 {
     public required IReadOnlyList<PageLayout> Pages { get; init; }
+
+    /// <summary>Distance between two staff lines the score was laid out with, in mm.</summary>
+    public double StaffSpace { get; init; } = 1.75;
 }
 
 public sealed class PageLayout
@@ -46,6 +49,20 @@ public sealed class PageLayout
     public required double Height { get; init; }
     public List<DrawItem> Items { get; } = new();
     public List<SystemLayout> Systems { get; } = new();
+
+    /// <summary>Where each chord and rest was drawn, so the screen can find what was clicked and mark the selection.</summary>
+    public List<ChordBox> Chords { get; } = new();
+}
+
+/// <summary>
+/// The box around a drawn chord's noteheads (or a rest) in mm, with the chord's place in the score: part, staff, voice,
+/// measure and start within the measure (quarter notes).
+/// </summary>
+public sealed record ChordBox(
+    int PartIndex, int Staff, int Voice, int MeasureIndex, Rational Start, bool IsRest, double Left, double Top, double Right, double Bottom)
+{
+    public bool Contains(double x, double y, double tolerance) =>
+        x >= Left - tolerance && x <= Right + tolerance && y >= Top - tolerance && y <= Bottom + tolerance;
 }
 
 /// <summary>One line of music across the page: every staff of every part, with a run of measures.</summary>
@@ -153,7 +170,7 @@ public static partial class ScoreLayoutEngine
         if (allSlots.Count == 0)
         {
             page.Items.Add(new TextItem("파트가 없습니다.", pageWidth / 2, y + 10, ComposerSize, TextAnchor.Middle));
-            return new ScoreLayout { Pages = pages };
+            return new ScoreLayout { Pages = pages, StaffSpace = options.StaffSpace };
         }
 
         var clefs = new ClefTimeline(project);
@@ -195,6 +212,7 @@ public static partial class ScoreLayoutEngine
 
             page.Items.AddRange(scratch.Items.Select(item => Shift(item, top)));
             page.Systems.Add(Shift(drawn, top));
+            page.Chords.AddRange(scratch.Chords.Select(c => c with { Top = c.Top + top, Bottom = c.Bottom + top }));
             previousBottom = top + systemHeight;
             previousLowest = top + below;
 
@@ -215,7 +233,7 @@ public static partial class ScoreLayoutEngine
                 : engraving is null ? previousLowest + SystemClearance * sp : double.MinValue;
         }
 
-        return new ScoreLayout { Pages = pages };
+        return new ScoreLayout { Pages = pages, StaffSpace = options.StaffSpace };
     }
 
     /// <summary>Space between the title block and the first staff, in mm.</summary>
@@ -742,7 +760,7 @@ public static partial class ScoreLayoutEngine
                     DrawTimeSignature(items, info, prefixX, staffTops, sp);
             }
 
-            DrawMeasureNotes(items, prepared[index], slots, staffTops, measureLeft + planned.Prefix, measureRight, planned, sp, placed, index, symbols, rests);
+            DrawMeasureNotes(items, prepared[index], slots, staffTops, measureLeft + planned.Prefix, measureRight, planned, sp, placed, index, symbols, rests, page.Chords);
 
             var kind = isLastSystem && k == plan.MeasureCount - 1 ? BarlineKind.Final : BarlineKind.Normal;
             if (info.RepeatEnd) kind = BarlineKind.EndRepeat;
@@ -791,7 +809,7 @@ public static partial class ScoreLayoutEngine
     private static void DrawMeasureNotes(
         List<DrawItem> items, PreparedMeasure measure, List<StaffSlot> slots, double[] staffTops,
         double contentLeft, double measureRight, PlannedMeasure plan, double sp, List<PlacedChord> placed, int measureIndex,
-        List<PlacedSymbol> symbols, List<PlacedRest> rests)
+        List<PlacedSymbol> symbols, List<PlacedRest> rests, List<ChordBox> boxes)
     {
         if (measure.IsEmpty)
         {
@@ -844,14 +862,23 @@ public static partial class ScoreLayoutEngine
                 var restX = chord.IsMeasureRest
                     ? (contentLeft + measureRight - Smufl.RestWidth(NoteType.Whole) * sp) / 2
                     : onsetX[chord.Start];
-                DrawRest(items, chord, restX, staffTop, sp);
+                var (restTop, restBottom) = DrawRest(items, chord, restX, staffTop, sp);
                 rests.Add(new PlacedRest(slotIndex, measureIndex, chord.Start, chord.Voice));
+                var restType = chord.IsMeasureRest ? NoteType.Whole : chord.Value.Type;
+                boxes.Add(new ChordBox(chord.PartIndex, chord.Staff, chord.Voice, measureIndex, chord.Start, true,
+                    restX, restTop, restX + Smufl.RestWidth(restType) * sp, restBottom));
             }
             else
             {
                 var chordX = onsetX[chord.Start] + chord.XOffset * sp;
                 var (top, bottom) = DrawChord(items, chord, chordX, staffTop, sp);
                 placed.Add(new PlacedChord(slotIndex, measureIndex, chord, chordX, top, bottom));
+                var head = Smufl.NoteheadWidth(chord.Value.Type) * sp;
+                boxes.Add(new ChordBox(chord.PartIndex, chord.Staff, chord.Voice, measureIndex, chord.Start, false,
+                    chordX + chord.Notes.Min(n => Math.Min(n.Side, 0)) * head,
+                    StaffY(staffTop, chord.Notes.Max(n => n.Position), sp) - sp / 2,
+                    chordX + (1 + chord.Notes.Max(n => Math.Max(n.Side, 0))) * head,
+                    StaffY(staffTop, chord.Notes.Min(n => n.Position), sp) + sp / 2));
             }
         }
 
@@ -1093,7 +1120,8 @@ public static partial class ScoreLayoutEngine
         items.Add(new LineItem(endX, lineY, endX, lineY + (above ? 1 : -1) * sp, thickness));
     }
 
-    private static void DrawRest(List<DrawItem> items, PreparedChord rest, double x, double staffTop, double sp)
+    /// <summary>Draws a rest (and its dots); returns the top and bottom of the rest glyph.</summary>
+    private static (double Top, double Bottom) DrawRest(List<DrawItem> items, PreparedChord rest, double x, double staffTop, double sp)
     {
         var type = rest.IsMeasureRest ? NoteType.Whole : rest.Value.Type;
 
@@ -1107,6 +1135,9 @@ public static partial class ScoreLayoutEngine
             for (var d = 0; d < rest.Value.Dots; d++)
                 items.Add(new GlyphItem(Smufl.AugmentationDot, x + (Smufl.RestWidth(type) + 0.35 + d * 0.6) * sp, staffTop + 1.5 * sp, 4 * sp));
         }
+
+        var (bottom, top) = Smufl.RestBounds(type);
+        return (y - top * sp, y - bottom * sp);
     }
 
     /// <summary>Draws a chord's heads, accidentals, dots, leger lines and (unless beamed) stem and flag; returns its top and bottom.</summary>

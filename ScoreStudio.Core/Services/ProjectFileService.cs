@@ -16,6 +16,13 @@ public static class ProjectFileService
 
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
+    /// <summary>The project as it would be saved (without updating its version or modification time).</summary>
+    public static string ToJson(ScoreProject project) => JsonSerializer.Serialize(project, Options);
+
+    /// <summary>A project read back from <see cref="ToJson"/>, e.g. an undo snapshot.</summary>
+    public static ScoreProject FromJson(string json) =>
+        JsonSerializer.Deserialize<ScoreProject>(json, Options) ?? throw new ProjectFileException("편집 기록을 읽을 수 없습니다.");
+
     public static void Save(string path, ScoreProject project)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);

@@ -113,6 +113,40 @@ public sealed class PageView : FrameworkElement
 
     public PageLayout Page { get; }
 
-    protected override void OnRender(DrawingContext drawingContext) =>
+    // Frozen, so pages on any UI thread can share them.
+    private static readonly Brush SelectionFill = Frozen(new SolidColorBrush(Color.FromArgb(0x55, 0x2F, 0x7B, 0xE0)));
+    private static readonly Pen SelectionOutline = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromRgb(0x2F, 0x7B, 0xE0))), 1));
+    private static readonly Pen CursorPen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromRgb(0x2F, 0x7B, 0xE0))), 2));
+
+    private static T Frozen<T>(T freezable) where T : Freezable
+    {
+        freezable.Freeze();
+        return freezable;
+    }
+
+    private ChordBox? _selection;
+    private (double X, double Top, double Bottom)? _cursor;
+
+    /// <summary>Marks the selected chord (a box) and the input cursor (a bar) on this page, in mm; null hides them.</summary>
+    public void SetMarks(ChordBox? selection, (double X, double Top, double Bottom)? cursor)
+    {
+        if (_selection == selection && _cursor == cursor) return;
+        (_selection, _cursor) = (selection, cursor);
+        InvalidateVisual();
+    }
+
+    protected override void OnRender(DrawingContext drawingContext)
+    {
         PageRenderer.Render(drawingContext, Page, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        const double k = PageRenderer.DipPerMm;
+        if (_selection is { } box)
+        {
+            var pad = 0.6;
+            drawingContext.DrawRectangle(SelectionFill, SelectionOutline,
+                new Rect((box.Left - pad) * k, (box.Top - pad) * k, (box.Right - box.Left + 2 * pad) * k, (box.Bottom - box.Top + 2 * pad) * k));
+        }
+
+        if (_cursor is { } c)
+            drawingContext.DrawLine(CursorPen, new Point(c.X * k, c.Top * k), new Point(c.X * k, c.Bottom * k));
+    }
 }

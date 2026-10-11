@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="ScoreStudio" Height="820" Width="1280"
         MinHeight="600" MinWidth="900" WindowStartupLocation="CenterScreen"
-        PreviewKeyDown="Window_PreviewKeyDown">
+        PreviewKeyDown="Window_PreviewKeyDown" Closing="Window_Closing">
     <DockPanel>
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_파일">
@@ -15,8 +15,16 @@
                 <MenuItem Header="PDF 내보내기..." IsEnabled="False" ToolTip="다음 개발 단계에서 구현합니다."/>
             </MenuItem>
             <MenuItem Header="_편집">
-                <MenuItem Header="실행 취소" IsEnabled="False"/>
-                <MenuItem Header="다시 실행" IsEnabled="False"/>
+                <MenuItem x:Name="UndoMenuItem" Header="실행 취소" InputGestureText="Ctrl+Z" Click="Undo_Click"/>
+                <MenuItem x:Name="RedoMenuItem" Header="다시 실행" InputGestureText="Ctrl+Y" Click="Redo_Click"/>
+                <Separator/>
+                <MenuItem Header="마디 복사" InputGestureText="Ctrl+C" Click="CopyMeasure_Click"/>
+                <MenuItem x:Name="PasteMenuItem" Header="마디 붙여넣기" InputGestureText="Ctrl+V" Click="PasteMeasure_Click"/>
+                <Separator/>
+                <MenuItem Header="입력 위치 뒤에 마디 추가" Click="InsertMeasure_Click"/>
+                <MenuItem Header="입력 위치의 마디 삭제" Click="DeleteMeasure_Click"/>
+                <Separator/>
+                <MenuItem Header="키보드 입력 방법" Click="KeyHelp_Click"/>
             </MenuItem>
             <MenuItem Header="_도움말">
                 <MenuItem Header="개발 상태" Click="About_Click"/>
@@ -41,8 +49,20 @@
                     <ComboBoxItem Content="300%" Tag="3"/>
                 </ComboBox>
                 <Button Content="+" Click="ZoomIn_Click" Padding="10,4" ToolTip="확대 (Ctrl+=)"/>
+            </ToolBar>
+            <ToolBar>
+                <TextBlock Text="입력 길이" VerticalAlignment="Center" Margin="4,0,6,0"/>
+                <Button Content="온" Tag="Whole" Click="Duration_Click" Focusable="False" Padding="8,4" ToolTip="온음표 (7)"/>
+                <Button Content="2분" Tag="Half" Click="Duration_Click" Focusable="False" Padding="8,4" ToolTip="2분음표 (6)"/>
+                <Button Content="4분" Tag="Quarter" Click="Duration_Click" Focusable="False" Padding="8,4" ToolTip="4분음표 (5)"/>
+                <Button Content="8분" Tag="Eighth" Click="Duration_Click" Focusable="False" Padding="8,4" ToolTip="8분음표 (4)"/>
+                <Button Content="16분" Tag="Sixteenth" Click="Duration_Click" Focusable="False" Padding="8,4" ToolTip="16분음표 (3)"/>
+                <Button Content="32분" Tag="ThirtySecond" Click="Duration_Click" Focusable="False" Padding="8,4" ToolTip="32분음표 (2)"/>
+                <Button Content="점" Click="Dot_Click" Focusable="False" Padding="8,4" ToolTip="점 붙이기·떼기 (.)"/>
+                <Button Content="쉼표" Click="Rest_Click" Focusable="False" Padding="8,4" ToolTip="입력 위치에 쉼표 넣기 (0)"/>
+                <TextBlock x:Name="InputValueText" Text="4분음표" VerticalAlignment="Center" FontWeight="SemiBold" Margin="8,0"/>
                 <Separator/>
-                <TextBlock Text="음표 입력은 아직 지원하지 않습니다. 셈여림·이음줄·아티큘레이션은 아직 표시하지 않습니다." VerticalAlignment="Center" Margin="8,0" Foreground="#805A20"/>
+                <TextBlock Text="음 이름 C~B 키로 입력 · 마우스로 음높이를 정해 입력하기는 아직 지원하지 않습니다." VerticalAlignment="Center" Margin="8,0" Foreground="#805A20"/>
             </ToolBar>
         </ToolBarTray>
 
@@ -74,7 +94,8 @@
             </Border>
 
             <ScrollViewer x:Name="ScoreScroll" Grid.Column="1" Background="#E8EBEF" HorizontalScrollBarVisibility="Auto"
-                          VerticalScrollBarVisibility="Auto" PreviewMouseWheel="ScoreScroll_PreviewMouseWheel">
+                          VerticalScrollBarVisibility="Auto" PreviewMouseWheel="ScoreScroll_PreviewMouseWheel"
+                          Focusable="True" FocusVisualStyle="{x:Null}" PreviewMouseLeftButtonDown="Score_MouseLeftButtonDown">
                 <StackPanel x:Name="PagesPanel" HorizontalAlignment="Center" Margin="28">
                     <StackPanel.LayoutTransform>
                         <ScaleTransform x:Name="ZoomTransform" ScaleX="1" ScaleY="1"/>
@@ -96,7 +117,7 @@
                     </ComboBox>
                     <TextBlock Text="개발 메모" FontWeight="SemiBold"/>
                     <TextBlock TextWrapping="Wrap" Foreground="#697586" Margin="0,4,0,0"
-                               Text="악보 화면은 오선, 음자리표, 조표, 박자표, 마디선, 음표, 쉼표, 빔(음표 잇기), 붙임줄, 가사, 코드 이름, 도돌이표·볼타, 음자리표 변경, 옥타브 기호를 표시합니다. 셈여림, 이음줄, 아티큘레이션, 글자 지시는 아직 가져오지도 표시하지도 않습니다. 음표 입력, MUSX 변환, PDF 출력은 아직 지원하지 않습니다."/>
+                               Text="악보 화면은 오선, 음자리표, 조표, 박자표, 마디선, 음표, 쉼표, 빔(음표 잇기), 붙임줄, 가사, 코드 이름, 도돌이표·볼타, 음자리표 변경, 옥타브 기호를 표시합니다. 키보드로 음표·쉼표를 입력하고 고칠 수 있습니다(편집 > 키보드 입력 방법). 셈여림, 이음줄, 아티큘레이션, 글자 지시는 아직 가져오지도 표시하지도 않습니다. 마우스로 음높이 입력, 잇단음표·가사 입력, MUSX 변환, PDF 출력은 아직 지원하지 않습니다."/>
                 </StackPanel>
             </Border>
         </Grid>
