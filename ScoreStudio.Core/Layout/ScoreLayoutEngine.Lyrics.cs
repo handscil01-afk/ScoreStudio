@@ -7,6 +7,9 @@ public static partial class ScoreLayoutEngine
     /// <summary>Lyric font size in mm when the source gives none: a little over two staff spaces.</summary>
     private const double DefaultLyricSizeInSpaces = 2.2;
 
+    /// <summary>Height of a hyphen above the baseline, in lyric font sizes: the middle of Hangul syllables.</summary>
+    private const double HyphenHeight = 0.35;
+
     /// <summary>Distance between verse lines, in lyric font sizes.</summary>
     private const double VerseLineSpacing = 1.4;
 
@@ -59,7 +62,7 @@ public static partial class ScoreLayoutEngine
                         var hyphen = 0.4 * size;
                         var centre = hasNext ? (right + spans[i + 1].Left) / 2 : right + 0.6 * size;
                         if ((!hasNext || spans[i + 1].Left - right > hyphen) && centre + hyphen / 2 <= systemRight)
-                            items.Add(new LineItem(centre - hyphen / 2, baseline - 0.28 * size, centre + hyphen / 2, baseline - 0.28 * size, 0.06 * size));
+                            items.Add(new LineItem(centre - hyphen / 2, baseline - HyphenHeight * size, centre + hyphen / 2, baseline - HyphenHeight * size, 0.06 * size));
                     }
 
                     if (lyric.Extend)

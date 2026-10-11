@@ -396,7 +396,7 @@ public sealed class NoteLayoutTests
 
         // One hyphen, between 사 and 랑, raised to the middle of the text.
         var (sa, rang) = (lyrics.Single(t => t.Text == "사"), lyrics.Single(t => t.Text == "랑"));
-        var hyphen = Assert.Single(lines, l => Math.Abs(l.Y1 - (sa.Y - 0.28 * size)) < 1e-9);
+        var hyphen = Assert.Single(lines, l => Math.Abs(l.Y1 - (sa.Y - 0.35 * size)) < 1e-9);
         Assert.True(hyphen.X1 > sa.X + TextMetrics.Width("사", size) / 2 && hyphen.X2 < rang.X - TextMetrics.Width("랑", size) / 2);
 
         // One extender, from after 래 to the right edge of the last held note (the chord before 해).
