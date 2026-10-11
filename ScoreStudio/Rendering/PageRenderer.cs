@@ -24,18 +24,23 @@ public static class PageRenderer
     public static void Render(DrawingContext dc, PageLayout page, double pixelsPerDip)
     {
         dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, page.Width * DipPerMm, page.Height * DipPerMm));
+        DrawItems(dc, page.Items, pixelsPerDip, Brushes.Black);
+    }
 
+    /// <summary>Draws layout items in one colour (black for the page; grey for the note entry preview).</summary>
+    public static void DrawItems(DrawingContext dc, IEnumerable<DrawItem> items, double pixelsPerDip, Brush brush)
+    {
         var pens = new Dictionary<double, Pen>();
         var music = MusicFont.Typeface;
 
-        foreach (var item in page.Items)
+        foreach (var item in items)
         {
             switch (item)
             {
                 case LineItem line:
                     if (!pens.TryGetValue(line.Thickness, out var pen))
                     {
-                        pen = new Pen(Brushes.Black, line.Thickness * DipPerMm) { StartLineCap = PenLineCap.Flat, EndLineCap = PenLineCap.Flat };
+                        pen = new Pen(brush, line.Thickness * DipPerMm) { StartLineCap = PenLineCap.Flat, EndLineCap = PenLineCap.Flat };
                         pen.Freeze();
                         pens[line.Thickness] = pen;
                     }
@@ -57,7 +62,7 @@ public static class PageRenderer
                     }
 
                     band.Freeze();
-                    dc.DrawGeometry(Brushes.Black, null, band);
+                    dc.DrawGeometry(brush, null, band);
                     break;
 
                 case CurveItem curve:
@@ -72,17 +77,17 @@ public static class PageRenderer
                     }
 
                     crescent.Freeze();
-                    dc.DrawGeometry(Brushes.Black, null, crescent);
+                    dc.DrawGeometry(brush, null, crescent);
                     break;
 
                 case GlyphItem glyph when music is { } musicTypeface:
-                    var symbol = Format(glyph.Glyph.ToString(), musicTypeface, glyph.Size, pixelsPerDip);
+                    var symbol = Format(glyph.Glyph.ToString(), musicTypeface, glyph.Size, pixelsPerDip, brush);
                     dc.DrawText(symbol, new Point(glyph.X * DipPerMm, glyph.Y * DipPerMm - symbol.Baseline));
                     break;
 
                 case TextItem text:
                     var typeface = text.Serif ? SerifTextTypeface : text.Bold ? BoldTextTypeface : TextTypeface;
-                    var formatted = Format(text.Text, typeface, text.Size, pixelsPerDip);
+                    var formatted = Format(text.Text, typeface, text.Size, pixelsPerDip, brush);
                     var x = text.X * DipPerMm - text.Anchor switch
                     {
                         TextAnchor.Middle => formatted.WidthIncludingTrailingWhitespace / 2,
@@ -97,8 +102,8 @@ public static class PageRenderer
 
     private static Point Mm(double x, double y) => new(x * DipPerMm, y * DipPerMm);
 
-    private static FormattedText Format(string text, Typeface typeface, double sizeMm, double pixelsPerDip) =>
-        new(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, sizeMm * DipPerMm, Brushes.Black, pixelsPerDip);
+    private static FormattedText Format(string text, Typeface typeface, double sizeMm, double pixelsPerDip, Brush brush) =>
+        new(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, sizeMm * DipPerMm, brush, pixelsPerDip);
 }
 
 /// <summary>One page of the score on screen.</summary>
@@ -124,8 +129,19 @@ public sealed class PageView : FrameworkElement
         return freezable;
     }
 
+    private static readonly Brush PreviewBrush = Frozen(new SolidColorBrush(Color.FromArgb(0x99, 0x55, 0x60, 0x70)));
+
     private ChordBox? _selection;
     private (double X, double Top, double Bottom)? _cursor;
+    private IReadOnlyList<DrawItem>? _preview;
+
+    /// <summary>Shows a grey note where a mouse click would enter one (null hides it).</summary>
+    public void SetPreview(IReadOnlyList<DrawItem>? preview)
+    {
+        if (ReferenceEquals(_preview, preview) || (_preview is null && preview is null)) return;
+        _preview = preview;
+        InvalidateVisual();
+    }
 
     /// <summary>Marks the selected chord (a box) and the input cursor (a bar) on this page, in mm; null hides them.</summary>
     public void SetMarks(ChordBox? selection, (double X, double Top, double Bottom)? cursor)
@@ -148,5 +164,8 @@ public sealed class PageView : FrameworkElement
 
         if (_cursor is { } c)
             drawingContext.DrawLine(CursorPen, new Point(c.X * k, c.Top * k), new Point(c.X * k, c.Bottom * k));
+
+        if (_preview is { } preview)
+            PageRenderer.DrawItems(drawingContext, preview, VisualTreeHelper.GetDpi(this).PixelsPerDip, PreviewBrush);
     }
 }

@@ -85,11 +85,22 @@ public sealed class ScoreEditor
     /// <summary>Enters a rest at the cursor.</summary>
     public EditResult EnterRest() => Enter(null);
 
-    private EditResult Enter(int? step)
+    /// <summary>
+    /// Enters a note of an exact written pitch (diatonic step number from C0, altered by the key) at a place, e.g. where
+    /// the mouse was clicked; the cursor moves there first.
+    /// </summary>
+    public EditResult EnterNoteAt(EditPosition at, int diatonic)
     {
-        if (!CursorIsValid()) return EditResult.Refused("입력할 위치가 없습니다. 악보에서 마디를 먼저 누르세요.");
+        if (!IsValid(at)) return EditResult.Refused("그 자리에 입력할 수 없습니다.");
+        if (diatonic < 0) return EditResult.Refused("입력할 수 있는 음높이 범위를 벗어났습니다.");
+        return Enter(diatonic % 7, diatonic, at);
+    }
 
-        var at = Cursor;
+    private EditResult Enter(int? step, int? diatonic = null, EditPosition? where = null)
+    {
+        if (where is null && !CursorIsValid()) return EditResult.Refused("입력할 위치가 없습니다. 악보에서 마디를 먼저 누르세요.");
+
+        var at = where ?? Cursor;
         var length = InputLength;
         string? pitchName = null;
         return Change(() =>
@@ -103,7 +114,7 @@ public sealed class ScoreEditor
             ScoreEvent? note = null;
             if (step is { } s)
             {
-                note = MakeNote(at, s, ReferenceDiatonic(at), measure.KeyFifths);
+                note = diatonic is { } d ? NoteAt(at, d / 7, s, measure.KeyFifths) : MakeNote(at, s, ReferenceDiatonic(at), measure.KeyFifths);
                 if (note is null) return "입력할 수 있는 음높이 범위를 벗어났습니다.";
                 pitchName = note.NotationSpelling;
             }
@@ -205,6 +216,48 @@ public sealed class ScoreEditor
             }
 
             AutoBeam(measure, at.Staff, at.Voice);
+            return null;
+        }, () => $"화음에 {name}을(를) 더했습니다.");
+    }
+
+    /// <summary>
+    /// Adds a note of an exact written pitch to the chord at a place (Shift+click); a rest there becomes that note, and
+    /// an empty place gets the note as a new entry.
+    /// </summary>
+    public EditResult AddToChordAt(EditPosition at, int diatonic)
+    {
+        if (!IsValid(at)) return EditResult.Refused("그 자리에 입력할 수 없습니다.");
+        if (diatonic < 0) return EditResult.Refused("입력할 수 있는 음높이 범위를 벗어났습니다.");
+        if (ChordAt(at) is not { Count: > 0 }) return EnterNoteAt(at, diatonic);
+
+        string? name = null;
+        return Change(() =>
+        {
+            var measure = MeasureAt(at);
+            var events = ChordAt(at)!;
+            var note = NoteAt(at, diatonic / 7, diatonic % 7, measure.KeyFifths);
+            if (note is null) return "입력할 수 있는 음높이 범위를 벗어났습니다.";
+            if (events.Any(e => e.Kind == "Note" && e.MidiPitch == note.MidiPitch)) return "화음에 이미 있는 음입니다.";
+
+            if (events[0].Kind == "Rest")
+            {
+                measure.Events.Remove(events[0]);
+            }
+            else
+            {
+                note.Beams = new List<BeamType>(events[0].Beams);
+                note.StemUp = events[0].StemUp;
+            }
+
+            measure.Events.Add(WithTime(note, Start(events[0]), Duration(events[0])));
+            AutoBeam(measure, at.Staff, at.Voice);
+            Selection = at;
+            SelectionIsEntry = true;
+            var after = Start(events[0]) + Duration(events[0]);
+            Cursor = after < MeasureLength(measure) ? at with { Position = after }
+                : at.Measure + 1 < Project.Parts[at.Part].Measures.Count ? at with { Measure = at.Measure + 1, Position = Rational.Zero }
+                : at;
+            name = note.NotationSpelling;
             return null;
         }, () => $"화음에 {name}을(를) 더했습니다.");
     }

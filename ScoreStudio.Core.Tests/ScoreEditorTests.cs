@@ -379,6 +379,84 @@ public sealed class ScoreEditorTests : IDisposable
         Assert.Null(LayoutHitTest.FindStaffMeasure(page, 1, 1, sp));
     }
 
+    /// <summary>The pointer target at staff position <paramref name="position"/> (0 = bottom line) over a measure's middle or at a given x.</summary>
+    private static MouseEntryTarget? Target(ScoreEditor editor, int measure, int position, double? x = null)
+    {
+        var layout = ScoreLayoutEngine.Layout(editor.Project);
+        var system = layout.Pages[0].Systems.First(s => s.Measures.Any(m => m.MeasureIndex == measure));
+        var box = system.Measures.First(m => m.MeasureIndex == measure);
+        var y = system.Staves[0].Top + (8 - position) * layout.StaffSpace / 2;
+        return MouseEntry.Find(layout, 0, editor.Project, editor.InputType, x ?? (box.Left + box.Right) / 2, y);
+    }
+
+    [Fact]
+    public void MouseTargets_TakeThePitchFromTheHeight_InTheClefAndKey()
+    {
+        var editor = NewEditor();
+        Assert.Equal("E4", Target(editor, 0, 0)!.PitchName);
+        Assert.Equal("B4", Target(editor, 0, 4)!.PitchName);
+        Assert.Equal(("F5", 4 * 7 + 7 + 3), (Target(editor, 0, 8)!.PitchName, Target(editor, 0, 8)!.Diatonic));
+
+        // Below the staff: middle C with one leger line in the preview, two for A3.
+        var c4 = Target(editor, 0, -2)!;
+        Assert.Equal("C4", c4.PitchName);
+        Assert.Single(c4.Preview.OfType<LineItem>());
+        Assert.Equal(2, Target(editor, 0, -4)!.Preview.OfType<LineItem>().Count());
+        Assert.Empty(Target(editor, 0, 3)!.Preview.OfType<LineItem>());
+
+        foreach (var m in editor.Project.Parts[0].Measures) m.KeyFifths = 1;
+        Assert.Equal("F#5", Target(editor, 0, 8)!.PitchName);
+
+        var bass = NewEditor();
+        bass.Project.Parts[0].Staves[0].Clef = ClefType.Bass;
+        Assert.Equal("G2", Target(bass, 0, 0)!.PitchName);
+    }
+
+    [Fact]
+    public void MouseTargets_TakeTheTimeFromTheColumn()
+    {
+        var editor = NewEditor();
+        Assert.Equal(R(0), Target(editor, 0, 4)!.At.Position);
+
+        Enter(editor, "CD");
+        var layout = ScoreLayoutEngine.Layout(editor.Project);
+        var boxes = layout.Pages[0].Chords.Where(c => c.MeasureIndex == 0).OrderBy(c => c.Start).ToList();
+        Assert.Equal(R(1), Target(editor, 0, 4, (boxes[1].Left + boxes[1].Right) / 2)!.At.Position);
+        Assert.Equal(R(0), Target(editor, 0, 4, boxes[0].Left - 0.3 * layout.StaffSpace)!.At.Position);
+        Assert.Equal(R(2), Target(editor, 0, 4, layout.Pages[0].Systems[0].Measures[0].Right - layout.StaffSpace)!.At.Position);
+
+        Enter(editor, "EF");
+        Assert.Null(Target(editor, 0, 4, ScoreLayoutEngine.Layout(editor.Project).Pages[0].Systems[0].Measures[0].Right - 0.5 * layout.StaffSpace));
+
+        var system = layout.Pages[0].Systems[0];
+        Assert.Null(MouseEntry.Find(layout, 0, editor.Project, NoteType.Quarter, (system.Measures[1].Left + system.Measures[1].Right) / 2, system.Staves[0].Top - 20 * layout.StaffSpace));
+    }
+
+    [Fact]
+    public void EnteringAtAPointerTarget_UsesItsExactPitch_AndShiftAddsToTheChord()
+    {
+        var editor = NewEditor();
+        Enter(editor, "C"); // C5
+        var low = Target(editor, 0, -2)!; // C4, far from the previous note
+        Assert.True(editor.EnterNoteAt(low.At, low.Diatonic).Done);
+        Assert.Equal(new[] { 72, 60 }, Chords(editor, 0).Select(c => c.Pitches.Single()));
+
+        var g = Target(editor, 0, 2, ScoreLayoutEngine.Layout(editor.Project).Pages[0].Chords.Single(c => c.Start == R(1)).Left)!;
+        Assert.Equal(R(1), g.At.Position);
+        Assert.True(editor.AddToChordAt(g.At, g.Diatonic).Done);
+        Assert.Equal(new[] { 60, 67 }, Chords(editor, 0)[1].Pitches);
+        Assert.Equal(R(2), editor.Cursor.Position);
+        Assert.False(editor.AddToChordAt(g.At, g.Diatonic).Done); // already there
+
+        editor.Select(new EditPosition(0, 0, 1, 0, R(0)));
+        editor.DeleteSelection();
+        Assert.True(editor.AddToChordAt(new EditPosition(0, 0, 1, 0, R(0)), 4 * 7 + 4).Done); // a rest becomes the note
+        Assert.Equal(("Note", 67), (Chords(editor, 0)[0].Kind, Chords(editor, 0)[0].Pitches.Single()));
+
+        Assert.True(editor.AddToChordAt(new EditPosition(0, 0, 1, 0, R(2)), 4 * 7 + 6).Done); // nothing there yet: entered
+        Assert.Equal(71, Chords(editor, 0)[2].Pitches.Single());
+    }
+
     [Fact]
     public void EditMarks_BoxTheSelection_AndPutTheCursorBeforeItsNote()
     {

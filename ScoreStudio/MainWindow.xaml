@@ -84,7 +84,8 @@
                 </Button>
                 <TextBlock x:Name="InputValueText" Text="4분음표" VerticalAlignment="Center" FontWeight="SemiBold" Margin="8,0"/>
                 <Separator/>
-                <TextBlock Text="C~B 키로 음 입력 · 마우스로 음높이 입력은 아직 지원하지 않음" VerticalAlignment="Center" Margin="8,0" Foreground="#805A20"/>
+                <ToggleButton x:Name="MouseEntryButton" Content="마우스 입력 (N)" Click="MouseEntry_Click" Focusable="False" Padding="8,4"
+                              ToolTip="켜면 오선 위를 눌러 그 높이의 음표를 넣습니다. Shift를 누른 채 누르면 그 자리의 화음에 더합니다. 끄면 누른 음표를 선택합니다."/>
             </ToolBar>
         </ToolBarTray>
 
@@ -117,7 +118,8 @@
 
             <ScrollViewer x:Name="ScoreScroll" Grid.Column="1" Background="#E8EBEF" HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Auto" PreviewMouseWheel="ScoreScroll_PreviewMouseWheel"
-                          Focusable="True" FocusVisualStyle="{x:Null}" PreviewMouseLeftButtonDown="Score_MouseLeftButtonDown">
+                          Focusable="True" FocusVisualStyle="{x:Null}" PreviewMouseLeftButtonDown="Score_MouseLeftButtonDown"
+                          PreviewMouseMove="Score_MouseMove" MouseLeave="Score_MouseLeave">
                 <StackPanel x:Name="PagesPanel" HorizontalAlignment="Center" Margin="28">
                     <StackPanel.LayoutTransform>
                         <ScaleTransform x:Name="ZoomTransform" ScaleX="1" ScaleY="1"/>
@@ -139,7 +141,7 @@
                     </ComboBox>
                     <TextBlock Text="개발 메모" FontWeight="SemiBold"/>
                     <TextBlock TextWrapping="Wrap" Foreground="#697586" Margin="0,4,0,0"
-                               Text="악보 화면은 오선, 음자리표, 조표, 박자표, 마디선, 음표, 쉼표, 빔(음표 잇기), 붙임줄, 가사, 코드 이름, 도돌이표·볼타, 음자리표 변경, 옥타브 기호를 표시합니다. 키보드로 음표·쉼표를 입력하고 고칠 수 있습니다(편집 > 키보드 입력 방법). 셈여림, 이음줄, 아티큘레이션, 글자 지시는 아직 가져오지도 표시하지도 않습니다. 마우스로 음높이 입력, 잇단음표·가사 입력, MUSX 변환, PDF 출력은 아직 지원하지 않습니다."/>
+                               Text="악보 화면은 오선, 음자리표, 조표, 박자표, 마디선, 음표, 쉼표, 빔(음표 잇기), 붙임줄, 가사, 코드 이름, 도돌이표·볼타, 음자리표 변경, 옥타브 기호를 표시합니다. 키보드와 마우스(마우스 입력, N)로 음표·쉼표를 입력하고 고칠 수 있습니다(편집 > 키보드 입력 방법). 셈여림, 이음줄, 아티큘레이션, 글자 지시는 아직 가져오지도 표시하지도 않습니다. 잇단음표·가사 입력, MUSX 변환, PDF 출력은 아직 지원하지 않습니다."/>
                 </StackPanel>
             </Border>
         </Grid>

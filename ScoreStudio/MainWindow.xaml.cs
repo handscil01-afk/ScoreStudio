@@ -28,6 +28,12 @@ public partial class MainWindow : Window
     private int _savedChangeCount;
     private bool _updatingUi;
 
+    /// <summary>Mouse entry: a click on a staff enters a note at that height instead of selecting.</summary>
+    private bool _mouseEntry;
+
+    /// <summary>The last pointer place over a page (page index and mm), to redraw the entry preview after an edit.</summary>
+    private (int Page, double X, double Y)? _pointer;
+
     private static readonly double[] ZoomLevels = { 0.5, 0.75, 1, 1.25, 1.5, 2, 3 };
 
     private double _zoom = 1;
@@ -249,10 +255,59 @@ public partial class MainWindow : Window
             "Ctrl+Z, Ctrl+Y : 실행 취소, 다시 실행\n" +
             "Ctrl+C, Ctrl+V : 입력 위치의 마디 복사, 붙여넣기\n" +
             "Esc : 선택 해제\n\n" +
+            "N : 마우스 입력 켜기·끄기 (켜면 오선 위를 눌러 그 높이의 음표를 넣고, Shift+누르기로 화음에 더함)\n\n" +
             "음표를 누르면 선택하고, 빈 곳을 누르면 그 마디에 입력 위치를 둡니다.\n" +
             "음표를 선택한 상태에서 길이 키를 누르면 그 음표의 길이가 바뀝니다.\n" +
             "마디에 남은 길이보다 긴 음표는 넣지 않습니다. 설정 메뉴에서 다음 마디로 붙임줄로 이어 넣게 바꿀 수 있습니다.",
             "키보드 입력 방법", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void MouseEntry_Click(object sender, RoutedEventArgs e) => SetMouseEntry(MouseEntryButton.IsChecked == true);
+
+    private void SetMouseEntry(bool on)
+    {
+        _mouseEntry = on;
+        MouseEntryButton.IsChecked = on;
+        if (on) ScoreScroll.Cursor = Cursors.Cross;
+        else ScoreScroll.ClearValue(CursorProperty);
+        StatusText.Content = on
+            ? "마우스 입력: 오선 위를 누르면 그 높이에 음표를 넣습니다(Shift: 화음에 더하기). N 또는 Esc로 끕니다."
+            : "마우스 입력을 껐습니다. 누르면 음표를 선택합니다.";
+        UpdatePreview(describe: false);
+        ScoreScroll.Focus();
+    }
+
+    private void Score_MouseMove(object sender, MouseEventArgs e)
+    {
+        _pointer = null;
+        if (e.OriginalSource is DependencyObject source && FindPageView(source) is { } view)
+        {
+            var point = e.GetPosition(view);
+            _pointer = (_pageViews.IndexOf(view), point.X / PageRenderer.DipPerMm, point.Y / PageRenderer.DipPerMm);
+        }
+
+        UpdatePreview();
+    }
+
+    private void Score_MouseLeave(object sender, MouseEventArgs e)
+    {
+        _pointer = null;
+        UpdatePreview();
+    }
+
+    /// <summary>
+    /// In mouse entry, the grey note where a click would enter one; nothing otherwise. <paramref name="describe"/> also
+    /// names it in the status bar (not right after an edit, whose message stays).
+    /// </summary>
+    private void UpdatePreview(bool describe = true)
+    {
+        var target = _mouseEntry && _layout is not null && _pointer is { } p
+            ? MouseEntry.Find(_layout, p.Page, Project, _editor.InputType, p.X, p.Y)
+            : null;
+        for (var i = 0; i < _pageViews.Count; i++)
+            _pageViews[i].SetPreview(target is not null && i == _pointer!.Value.Page ? target.Preview : null);
+        if (target is not null && describe)
+            StatusText.Content = $"{target.PitchName} · {Project.Parts[target.At.Part].Measures[target.At.Measure].Number}마디 {(target.At.Position.ToDouble() + 1).ToString("0.##", CultureInfo.InvariantCulture)}박에 넣기";
     }
 
     private void Score_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -266,6 +321,19 @@ public partial class MainWindow : Window
         var (x, y) = (point.X / PageRenderer.DipPerMm, point.Y / PageRenderer.DipPerMm);
         var sp = _layout.StaffSpace;
         var before = _editor.ChangeCount;
+        if (_mouseEntry)
+        {
+            if (MouseEntry.Find(_layout, _pageViews.IndexOf(view), Project, _editor.InputType, x, y) is { } target)
+            {
+                var add = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+                ShowEdit(add ? _editor.AddToChordAt(target.At, target.Diatonic) : _editor.EnterNoteAt(target.At, target.Diatonic), before);
+                UpdatePreview(describe: false);
+            }
+
+            e.Handled = true;
+            return;
+        }
+
         if (LayoutHitTest.FindChord(view.Page, x, y, 0.4 * sp) is { } chord)
         {
             ShowEdit(_editor.Select(new EditPosition(chord.PartIndex, chord.Staff, chord.Voice, chord.MeasureIndex, chord.Start)), before);
@@ -287,9 +355,7 @@ public partial class MainWindow : Window
     private Rational EndOfVoice(StaffMeasureHit hit)
     {
         var measure = Project.Parts[hit.PartIndex].Measures[hit.MeasureIndex];
-        var end = measure.Events.Where(ev => ev.Staff == hit.Staff && ev.Voice == 1)
-            .Select(ev => new Rational(ev.PositionNumerator, ev.PositionDenominator) + new Rational(ev.DurationNumerator, ev.DurationDenominator))
-            .DefaultIfEmpty(Rational.Zero).Max();
+        var end = MouseEntry.EndOfVoice(measure, hit.Staff);
         return end < ScoreEditor.MeasureLength(measure) ? end : Rational.Zero;
     }
 
@@ -458,6 +524,13 @@ public partial class MainWindow : Window
         // Typing in the title box or a list stays there; everywhere else keys edit the score.
         if (Keyboard.FocusedElement is not (TextBox or ComboBox or ComboBoxItem))
         {
+            if (Keyboard.Modifiers == ModifierKeys.None && (e.Key == Key.N || (e.Key == Key.Escape && _mouseEntry)))
+            {
+                SetMouseEntry(e.Key == Key.N && !_mouseEntry);
+                e.Handled = true;
+                return;
+            }
+
             var before = _editor.ChangeCount;
             if (EditorKeys.Handle(_editor, e.Key == Key.System ? e.SystemKey : e.Key, Keyboard.Modifiers) is { } result)
             {
@@ -526,7 +599,7 @@ public partial class MainWindow : Window
     private void About_Click(object sender, RoutedEventArgs e)
     {
         MessageBox.Show(this,
-            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·조표·박자표·마디선·음표·쉼표·빔·붙임줄·가사·코드 이름·도돌이표·볼타·음자리표 변경·옥타브 기호, 여러 페이지, 확대/축소), MusicXML 가져오기, 키보드로 음표·쉼표 입력과 고치기(실행 취소 포함)\n아직 가져오지 않음: 셈여림, 이음줄, 아티큘레이션, 글자 지시(가져오기 결과 창에 경고로 표시)\n아직 지원하지 않음: 마우스로 음높이 입력, 잇단음표·가사 입력, MUSX 변환, PDF 출력",
+            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·조표·박자표·마디선·음표·쉼표·빔·붙임줄·가사·코드 이름·도돌이표·볼타·음자리표 변경·옥타브 기호, 여러 페이지, 확대/축소), MusicXML 가져오기, 키보드와 마우스로 음표·쉼표 입력과 고치기(실행 취소 포함)\n아직 가져오지 않음: 셈여림, 이음줄, 아티큘레이션, 글자 지시(가져오기 결과 창에 경고로 표시)\n아직 지원하지 않음: 잇단음표·가사 입력, MUSX 변환, PDF 출력",
             "개발 상태", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
