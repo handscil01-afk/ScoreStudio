@@ -365,6 +365,10 @@ public partial class MainWindow : Window
         RedoMenuItem.IsEnabled = _editor.CanRedo;
         PasteMenuItem.IsEnabled = _editor.CanPaste;
         InputValueText.Text = ScoreEditor.DescribeValue(_editor.InputType, _editor.InputDots, rest: false);
+        foreach (var button in InputToolBar.Items.OfType<System.Windows.Controls.Primitives.ToggleButton>())
+        {
+            button.IsChecked = button == DotButton ? _editor.InputDots > 0 : (button.Tag as string) == _editor.InputType.ToString();
+        }
         RefreshTitle();
     }
 

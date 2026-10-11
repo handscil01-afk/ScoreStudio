@@ -1,6 +1,7 @@
 <Window x:Class="ScoreStudio.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:r="clr-namespace:ScoreStudio.Rendering"
         Title="ScoreStudio" Height="820" Width="1280"
         MinHeight="600" MinWidth="900" WindowStartupLocation="CenterScreen"
         PreviewKeyDown="Window_PreviewKeyDown" Closing="Window_Closing">
@@ -50,19 +51,35 @@
                 </ComboBox>
                 <Button Content="+" Click="ZoomIn_Click" Padding="10,4" ToolTip="확대 (Ctrl+=)"/>
             </ToolBar>
-            <ToolBar>
+            <ToolBar x:Name="InputToolBar">
                 <TextBlock Text="입력 길이" VerticalAlignment="Center" Margin="4,0,6,0"/>
-                <Button Content="온" Tag="Whole" Click="Duration_Click" Focusable="False" Padding="8,4" ToolTip="온음표 (7)"/>
-                <Button Content="2분" Tag="Half" Click="Duration_Click" Focusable="False" Padding="8,4" ToolTip="2분음표 (6)"/>
-                <Button Content="4분" Tag="Quarter" Click="Duration_Click" Focusable="False" Padding="8,4" ToolTip="4분음표 (5)"/>
-                <Button Content="8분" Tag="Eighth" Click="Duration_Click" Focusable="False" Padding="8,4" ToolTip="8분음표 (4)"/>
-                <Button Content="16분" Tag="Sixteenth" Click="Duration_Click" Focusable="False" Padding="8,4" ToolTip="16분음표 (3)"/>
-                <Button Content="32분" Tag="ThirtySecond" Click="Duration_Click" Focusable="False" Padding="8,4" ToolTip="32분음표 (2)"/>
-                <Button Content="점" Click="Dot_Click" Focusable="False" Padding="8,4" ToolTip="점 붙이기·떼기 (.)"/>
-                <Button Content="쉼표" Click="Rest_Click" Focusable="False" Padding="8,4" ToolTip="입력 위치에 쉼표 넣기 (0)"/>
+                <ToggleButton Tag="Whole" Click="Duration_Click" Focusable="False" Padding="3,1" ToolTip="온음표 (7)">
+                    <r:MusicGlyphIcon Glyph="&#xE1D2;" Baseline="0.5" Fallback="온"/>
+                </ToggleButton>
+                <ToggleButton Tag="Half" Click="Duration_Click" Focusable="False" Padding="3,1" ToolTip="2분음표 (6)">
+                    <r:MusicGlyphIcon Glyph="&#xE1D3;" Fallback="2분"/>
+                </ToggleButton>
+                <ToggleButton Tag="Quarter" Click="Duration_Click" Focusable="False" Padding="3,1" ToolTip="4분음표 (5)">
+                    <r:MusicGlyphIcon Glyph="&#xE1D5;" Fallback="4분"/>
+                </ToggleButton>
+                <ToggleButton Tag="Eighth" Click="Duration_Click" Focusable="False" Padding="3,1" ToolTip="8분음표 (4)">
+                    <r:MusicGlyphIcon Glyph="&#xE1D7;" Fallback="8분"/>
+                </ToggleButton>
+                <ToggleButton Tag="Sixteenth" Click="Duration_Click" Focusable="False" Padding="3,1" ToolTip="16분음표 (3)">
+                    <r:MusicGlyphIcon Glyph="&#xE1D9;" Fallback="16분"/>
+                </ToggleButton>
+                <ToggleButton Tag="ThirtySecond" Click="Duration_Click" Focusable="False" Padding="3,1" ToolTip="32분음표 (2)">
+                    <r:MusicGlyphIcon Glyph="&#xE1DB;" Fallback="32분"/>
+                </ToggleButton>
+                <ToggleButton x:Name="DotButton" Click="Dot_Click" Focusable="False" Padding="3,1" ToolTip="점 붙이기·떼기 (.)">
+                    <r:MusicGlyphIcon Glyph="&#xE1E7;" Width="12" Baseline="0.5" GlyphSize="44" Fallback="점"/>
+                </ToggleButton>
+                <Button Click="Rest_Click" Focusable="False" Padding="3,1" ToolTip="입력 위치에 쉼표 넣기 (0)">
+                    <r:MusicGlyphIcon Glyph="&#xE4E5;" Baseline="0.5" Fallback="쉼표"/>
+                </Button>
                 <TextBlock x:Name="InputValueText" Text="4분음표" VerticalAlignment="Center" FontWeight="SemiBold" Margin="8,0"/>
                 <Separator/>
-                <TextBlock Text="음 이름 C~B 키로 입력 · 마우스로 음높이를 정해 입력하기는 아직 지원하지 않습니다." VerticalAlignment="Center" Margin="8,0" Foreground="#805A20"/>
+                <TextBlock Text="C~B 키로 음 입력 · 마우스로 음높이 입력은 아직 지원하지 않음" VerticalAlignment="Center" Margin="8,0" Foreground="#805A20"/>
             </ToolBar>
         </ToolBarTray>
 
