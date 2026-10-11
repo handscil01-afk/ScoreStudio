@@ -116,6 +116,19 @@ public static class Smufl
 
     public static char Rest(NoteType type) => (char)(RestDoubleWhole + (int)type);
 
+    /// <summary>How far a rest glyph reaches below and above its baseline, in staff spaces (y up), from Bravura's bounding boxes.</summary>
+    public static (double Bottom, double Top) RestBounds(NoteType type) => type switch
+    {
+        NoteType.Breve => (0.0, 1.0),
+        NoteType.Whole => (-0.54, 0.036),
+        NoteType.Half => (-0.008, 0.568),
+        NoteType.Quarter => (-1.5, 1.492),
+        NoteType.Eighth => (-1.004, 0.696),
+        NoteType.Sixteenth => (-2.0, 0.716),
+        NoteType.ThirtySecond => (-2.0, 1.704),
+        _ => (-3.012, 1.72),
+    };
+
     public static double RestWidth(NoteType type) => type switch
     {
         NoteType.Breve => 0.504,

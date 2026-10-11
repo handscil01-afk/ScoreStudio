@@ -19,6 +19,10 @@ internal sealed class PreparedChord
     public required int Staff { get; init; }
     public required int Voice { get; init; }
     public required Rational Start { get; init; }
+
+    /// <summary>How long the chord or rest lasts, in quarter notes (a whole-measure rest: the whole measure).</summary>
+    public Rational Duration { get; init; }
+
     public required NoteValue Value { get; init; }
     public required bool IsRest { get; init; }
 
@@ -45,6 +49,18 @@ internal sealed class PreparedChord
 
     /// <summary>Verses whose extender line ends at this chord.</summary>
     public IReadOnlyList<int> ExtendEnds { get; init; } = Array.Empty<int>();
+
+    /// <summary>
+    /// Shift to the right of the onset, in staff spaces: one of two voices moves aside when their notes would touch (a
+    /// second, or a unison that cannot share a notehead).
+    /// </summary>
+    public double XOffset { get; set; }
+
+    /// <summary>
+    /// For a rest: how far it moves up from its normal place, in staff positions (half spaces; negative is down). In two
+    /// voices a rest moves away from the other voice's notes.
+    /// </summary>
+    public int RestShift { get; set; }
 
     /// <summary>Room needed left of the onset for accidentals and left-displaced heads, in staff spaces.</summary>
     public double LeftExtent { get; init; }
@@ -172,6 +188,7 @@ internal static class NotePreparation
             // Alteration currently in force at each diatonic step, starting from the key signature.
             var inForce = new Dictionary<int, int>();
             var pending = new List<PendingChord>();
+            var staffRests = new List<PreparedChord>();
 
             foreach (var chordEvents in staffGroup.GroupBy(e => (e.Voice, Start: Start(e))).OrderBy(g => g.Key.Start))
             {
@@ -184,12 +201,15 @@ internal static class NotePreparation
                 if (first.Kind == "Rest")
                 {
                     var isMeasureRest = Start(first).Sign == 0 && duration >= nominal;
-                    result.Add(new PreparedChord
+                    var rest = new PreparedChord
                     {
                         PartIndex = partIndex, Staff = staff, Voice = first.Voice, Start = Start(first), Value = value,
+                        Duration = isMeasureRest ? Rational.Max(duration, nominal) : duration,
                         IsRest = true, IsMeasureRest = isMeasureRest, VoiceRole = role, OctaveShift = first.OctaveShift,
                         RightExtent = isMeasureRest ? 0 : Smufl.RestWidth(value.Type) + DotsWidth(value),
-                    });
+                    };
+                    result.Add(rest);
+                    staffRests.Add(rest);
                     continue;
                 }
 
@@ -236,14 +256,65 @@ internal static class NotePreparation
             foreach (var chord in pending)
             {
                 var stemUp = chord.GroupStemUp ?? StemUp(chord.Role, chord.Notes.Select(n => n.Position).ToList());
-                built[chord] = BuildChord(partIndex, staff, chord.First.Voice, Start(chord.First), chord.Value, stemUp, chord.Role,
+                built[chord] = BuildChord(partIndex, staff, chord.First.Voice, Start(chord.First), Duration(chord.First), chord.Value, stemUp, chord.Role,
                     chord.Notes, chord.First.OctaveShift, chord.Beams, chord.Lyrics, chord.ExtendEnds);
                 result.Add(built[chord]);
             }
 
             beams.AddRange(groups.Select(g => new PreparedBeam(g.Select(c => built[c]).ToList(), g[0].GroupStemUp!.Value)));
+            if (multiVoice)
+                SeparateVoices(built.Values.ToList(), staffRests);
         }
     }
+
+    /// <summary>
+    /// Keeps two voices on one staff apart. A rest moves (by whole spaces) above the other voices' notes that sound
+    /// during it if it belongs to the upper voice, below them if to a lower voice, keeping half a space clear. Where an
+    /// upper-voice chord and a lower-voice chord start together and their notes are a second apart, or in unison with
+    /// different noteheads or dots, one chord moves right: the upper (stem-up) one, past the lower one's notehead and
+    /// dots; or the lower one when only it is dotted.
+    /// </summary>
+    private static void SeparateVoices(List<PreparedChord> chords, List<PreparedChord> rests)
+    {
+        foreach (var rest in rests.Where(r => r.VoiceRole != 0))
+        {
+            var end = rest.Start + rest.Duration;
+            var others = chords.Where(c => c.Voice != rest.Voice && c.Start < end && c.Start + c.Duration > rest.Start)
+                .SelectMany(c => c.Notes.Select(n => n.Position)).ToList();
+            var type = rest.IsMeasureRest ? NoteType.Whole : rest.Value.Type;
+            var anchor = type <= NoteType.Whole ? 6 : 4; // whole rests hang from the fourth line, others sit on the middle line
+            var (bottom, top) = Smufl.RestBounds(type);
+            var shift = rest.VoiceRole > 0 ? 4 : -4;
+            if (others.Count > 0 && rest.VoiceRole > 0)
+                shift = Math.Max(shift, EvenUp(others.Max() + 2 - anchor - (int)Math.Floor(bottom * 2)));
+            else if (others.Count > 0)
+                shift = Math.Min(shift, -EvenUp(anchor + (int)Math.Ceiling(top * 2) - (others.Min() - 2)));
+            rest.RestShift = shift;
+        }
+
+        foreach (var onset in chords.GroupBy(c => c.Start))
+        {
+            foreach (var up in onset.Where(c => c.VoiceRole > 0))
+            {
+                foreach (var down in onset.Where(c => c.VoiceRole < 0))
+                {
+                    var shareable = Smufl.Notehead(up.Value.Type) == Smufl.Notehead(down.Value.Type) && up.Value.Dots == down.Value.Dots;
+                    var touching = up.Notes.Any(u => down.Notes.Any(d => Math.Abs(u.Position - d.Position) == 1 || (u.Position == d.Position && !shareable)));
+                    if (!touching) continue;
+
+                    // The upper voice moves right, unless only the lower voice is dotted: then it moves instead, so the
+                    // upper note does not cover its dot. When both are dotted the upper note clears the lower one's dots.
+                    if (down.Value.Dots > 0 && up.Value.Dots == 0)
+                        down.XOffset = Math.Max(down.XOffset, Smufl.NoteheadWidth(up.Value.Type));
+                    else
+                        up.XOffset = Math.Max(up.XOffset, Smufl.NoteheadWidth(down.Value.Type) + DotsWidth(down.Value));
+                }
+            }
+        }
+    }
+
+    /// <summary>The smallest even number at least <paramref name="value"/>.</summary>
+    private static int EvenUp(int value) => value % 2 == 0 ? value : value + 1;
 
     /// <summary>
     /// One voice keeps one stem direction; otherwise the note furthest from the middle line decides (stems go down from it).
@@ -315,7 +386,7 @@ internal static class NotePreparation
     private static double DotsWidth(NoteValue value) => value.Dots == 0 ? 0 : 0.35 + value.Dots * 0.6;
 
     private static PreparedChord BuildChord(
-        int partIndex, int staff, int voice, Rational start, NoteValue value, bool stemUp, int role,
+        int partIndex, int staff, int voice, Rational start, Rational duration, NoteValue value, bool stemUp, int role,
         List<(int Position, int? Accidental, int Midi, bool Tie)> notes, int octaveShift, IReadOnlyList<BeamType> beams,
         IReadOnlyList<ScoreLyric> lyrics, IReadOnlyList<int> extendEnds)
     {
@@ -356,7 +427,7 @@ internal static class NotePreparation
 
         return new PreparedChord
         {
-            PartIndex = partIndex, Staff = staff, Voice = voice, Start = start, Value = value, IsRest = false,
+            PartIndex = partIndex, Staff = staff, Voice = voice, Start = start, Duration = duration, Value = value, IsRest = false,
             StemUp = stemUp, VoiceRole = role, OctaveShift = octaveShift, Beams = beams, Lyrics = lyrics, ExtendEnds = extendEnds,
             Notes = sorted.Select((n, i) => new PreparedNote(n.Position, n.Accidental, sides[i], columns[i], n.Midi, n.Tie)).ToList(),
             LeftExtent = displacedLeft + accidentalRoom,
@@ -399,12 +470,12 @@ internal static class NotePreparation
         for (var i = 0; i < onsets.Count; i++)
         {
             var atOnset = chords.Where(c => c.Start == onsets[i] && !c.IsMeasureRest).ToList();
-            pre[i] = atOnset.Select(c => c.LeftExtent).DefaultIfEmpty(0).Max();
+            pre[i] = atOnset.Select(c => c.LeftExtent - c.XOffset).DefaultIfEmpty(0).Max();
             if (clefsAtOnsets.Any(c => c.Onset == onsets[i]))
                 pre[i] += ClefChangeWidth;
             var next = i + 1 < onsets.Count ? onsets[i + 1] : length;
             var gap = SpaceFor(next - onsets[i]);
-            var needed = atOnset.Select(c => c.RightExtent + 0.3).DefaultIfEmpty(0).Max();
+            var needed = atOnset.Select(c => c.XOffset + c.RightExtent + 0.3).DefaultIfEmpty(0).Max();
             segments[i] = Math.Max(gap, needed);
             minSegments[i] = Math.Max(MinimumGapScale * gap, needed);
         }

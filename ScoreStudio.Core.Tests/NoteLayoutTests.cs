@@ -267,10 +267,12 @@ public sealed class NoteLayoutTests
         public bool Contains(double x, double y) => x > Left && x < Right && y > Top && y < Bottom;
     }
 
-    /// <summary>The beams sample fits on one page; its measures in order, whichever system they land in.</summary>
-    private static (PageLayout Page, List<MeasureBox> Measures) BeamsSample()
+    private static (PageLayout Page, List<MeasureBox> Measures) BeamsSample() => SampleMeasures("beams.musicxml");
+
+    /// <summary>A sample that fits on one page; its measures in order, whichever system they land in.</summary>
+    private static (PageLayout Page, List<MeasureBox> Measures) SampleMeasures(string file)
     {
-        var page = ScoreLayoutEngine.Layout(MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", "beams.musicxml")).Project).Pages.Single();
+        var page = ScoreLayoutEngine.Layout(MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", file)).Project).Pages.Single();
         var systems = page.Systems;
         return (page, systems.SelectMany((s, i) => s.Measures.Select(m => new MeasureBox(
             m.Left, m.Right,
@@ -709,6 +711,100 @@ public sealed class NoteLayoutTests
         });
         Assert.True(music.Min() > headingBottom, $"{Path.GetFileName(file)}: music reaches {music.Min():F1} mm, above the heading's bottom at {headingBottom:F1} mm");
     }
+
+    /// <summary>
+    /// Rests and augmentation dots never sit on noteheads, and noteheads of different chords never partly cover each
+    /// other (two voices may share one notehead exactly).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllScores))]
+    public void RestsAndNoteheadsDoNotCollide_InEveryScore(string file)
+    {
+        var layout = ScoreLayoutEngine.Layout(MusicXmlImporter.ImportFile(file).Project);
+        var collisions = new List<string>();
+        foreach (var page in layout.Pages)
+        {
+            var glyphs = page.Items.OfType<GlyphItem>().ToList();
+            var heads = glyphs.Where(g => Noteheads.Contains(g.Glyph))
+                .Select(g => (Glyph: g, Left: g.X, Right: g.X + Smufl.NoteheadWidth(HeadType(g.Glyph)) * Sp, Top: g.Y - 0.5 * Sp, Bottom: g.Y + 0.5 * Sp)).ToList();
+            var rests = glyphs.Where(g => g.Glyph >= Smufl.RestDoubleWhole && g.Glyph <= Smufl.RestDoubleWhole + 7)
+                .Select(g =>
+                {
+                    var type = (NoteType)(g.Glyph - Smufl.RestDoubleWhole);
+                    var (low, high) = Smufl.RestBounds(type);
+                    return (Glyph: g, Left: g.X, Right: g.X + Smufl.RestWidth(type) * Sp, Top: g.Y - high * Sp, Bottom: g.Y - low * Sp);
+                }).ToList();
+
+            static bool Overlap((GlyphItem Glyph, double Left, double Right, double Top, double Bottom) a, (GlyphItem Glyph, double Left, double Right, double Top, double Bottom) b) =>
+                Math.Min(a.Right, b.Right) - Math.Max(a.Left, b.Left) > 0.1 * Sp && Math.Min(a.Bottom, b.Bottom) - Math.Max(a.Top, b.Top) > 0.1 * Sp;
+
+            foreach (var rest in rests)
+                foreach (var head in heads.Where(h => Overlap(rest, h)))
+                    collisions.Add($"p{page.Number} rest at ({rest.Glyph.X:F1}, {rest.Glyph.Y:F1}) on a notehead at ({head.Glyph.X:F1}, {head.Glyph.Y:F1})");
+
+            var dots = glyphs.Where(g => g.Glyph == Smufl.AugmentationDot)
+                .Select(g => (Glyph: g, Left: g.X, Right: g.X + Smufl.AugmentationDotWidth * Sp, Top: g.Y - 0.2 * Sp, Bottom: g.Y + 0.2 * Sp));
+            foreach (var dot in dots)
+                foreach (var head in heads.Where(h => Overlap(dot, h)))
+                    collisions.Add($"p{page.Number} dot at ({dot.Glyph.X:F1}, {dot.Glyph.Y:F1}) on a notehead at ({head.Glyph.X:F1}, {head.Glyph.Y:F1})");
+
+            for (var i = 0; i < heads.Count; i++)
+                for (var j = i + 1; j < heads.Count; j++)
+                {
+                    var (a, b) = (heads[i], heads[j]);
+                    var shared = Math.Abs(a.Left - b.Left) < 1e-6 && Math.Abs(a.Top - b.Top) < 1e-6 && a.Glyph.Glyph == b.Glyph.Glyph;
+                    if (!shared && Overlap(a, b))
+                        collisions.Add($"p{page.Number} noteheads at ({a.Glyph.X:F1}, {a.Glyph.Y:F1}) and ({b.Glyph.X:F1}, {b.Glyph.Y:F1})");
+                }
+        }
+
+        Assert.True(collisions.Count == 0, $"{Path.GetFileName(file)}: {collisions.Count} collisions: {string.Join("; ", collisions.Take(12))}");
+    }
+
+    [Fact]
+    public void TwoVoices_RestsMakeRoom_AndTouchingNoteheadsMoveApart()
+    {
+        var (page, measures) = SampleMeasures("two-voices.musicxml");
+        List<GlyphItem> HeadsIn(MeasureBox m) =>
+            page.Items.OfType<GlyphItem>().Where(g => Noteheads.Contains(g.Glyph) && m.Contains(g.X, g.Y)).OrderBy(g => g.X).ThenBy(g => g.Y).ToList();
+        (double Top, double Bottom) RestIn(MeasureBox m, NoteType type)
+        {
+            var rest = page.Items.OfType<GlyphItem>().Single(g => g.Glyph == Smufl.Rest(type) && m.Contains(g.X, g.Y));
+            var (low, high) = Smufl.RestBounds(type);
+            return (rest.Y - high * Sp, rest.Y - low * Sp);
+        }
+
+        // 1: the lower voice's rest goes below the upper voice's chord.
+        var chord = HeadsIn(measures[0]).Where(h => h.X < HeadsIn(measures[0]).Min(g => g.X) + Sp).ToList();
+        Assert.Equal(3, chord.Count);
+        Assert.True(RestIn(measures[0], NoteType.Quarter).Top > chord.Max(h => h.Y) + 0.5 * Sp);
+
+        // 2: a second between the voices: the upper voice's note moves right by one notehead.
+        var second = HeadsIn(measures[1]).Take(2).OrderBy(h => h.Y).ToList();
+        Assert.Equal(Smufl.NoteheadWidth(NoteType.Half) * Sp, second[0].X - second[1].X, 6);
+
+        // 3: the same pitch and value in both voices: one notehead each time.
+        Assert.Equal(2, HeadsIn(measures[2]).Select(h => (h.X, h.Y)).Distinct().Count());
+
+        // 4: the same pitch with different noteheads, only the lower one dotted: the dotted half goes right of the
+        // whole note, so the whole note does not cover its dot.
+        var whole = HeadsIn(measures[3]).Single(h => h.Glyph == Smufl.NoteheadWhole);
+        var half = HeadsIn(measures[3]).Single(h => h.Glyph == Smufl.NoteheadHalf);
+        Assert.Equal(whole.Y, half.Y, 6);
+        Assert.Equal(Smufl.NoteheadWidth(NoteType.Whole) * Sp, half.X - whole.X, 6);
+
+        // 5 and 6: whole-measure rests go below or above the other voice's notes.
+        Assert.True(RestIn(measures[4], NoteType.Whole).Top > HeadsIn(measures[4]).Max(h => h.Y) + 0.5 * Sp);
+        Assert.True(RestIn(measures[5], NoteType.Whole).Bottom < HeadsIn(measures[5]).Min(h => h.Y) - 0.5 * Sp);
+    }
+
+    private static NoteType HeadType(char glyph) => glyph switch
+    {
+        Smufl.NoteheadDoubleWhole => NoteType.Breve,
+        Smufl.NoteheadWhole => NoteType.Whole,
+        Smufl.NoteheadHalf => NoteType.Half,
+        _ => NoteType.Quarter,
+    };
 
     /// <summary>Rules that hold for any score: beamed stems end exactly on their beam and carry no flag.</summary>
     [Theory]

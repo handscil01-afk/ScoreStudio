@@ -737,8 +737,9 @@ public static partial class ScoreLayoutEngine
             }
             else
             {
-                var (top, bottom) = DrawChord(items, chord, onsetX[chord.Start], staffTop, sp);
-                placed.Add(new PlacedChord(slotIndex, measureIndex, chord, onsetX[chord.Start], top, bottom));
+                var chordX = onsetX[chord.Start] + chord.XOffset * sp;
+                var (top, bottom) = DrawChord(items, chord, chordX, staffTop, sp);
+                placed.Add(new PlacedChord(slotIndex, measureIndex, chord, chordX, top, bottom));
             }
         }
 
@@ -747,7 +748,7 @@ public static partial class ScoreLayoutEngine
             var slotIndex = slots.FindIndex(s => s.PartIndex == beam.Chords[0].PartIndex && s.StaffIndex == beam.Chords[0].Staff);
             if (slotIndex < 0) continue;
 
-            var stemEnds = DrawBeam(items, beam, beam.Chords.Select(c => onsetX[c.Start]).ToList(), staffTops[slotIndex], sp);
+            var stemEnds = DrawBeam(items, beam, beam.Chords.Select(c => onsetX[c.Start] + c.XOffset * sp).ToList(), staffTops[slotIndex], sp);
             for (var i = 0; i < beam.Chords.Count; i++)
             {
                 var at = placed.FindLastIndex(p => ReferenceEquals(p.Chord, beam.Chords[i]));
@@ -986,7 +987,7 @@ public static partial class ScoreLayoutEngine
 
         // Whole rests hang from the fourth line, the others sit on the middle line. With two voices they move apart.
         var y = type <= NoteType.Whole ? staffTop + sp : staffTop + 2 * sp;
-        y -= rest.VoiceRole * 2 * sp;
+        y -= rest.RestShift * sp / 2;
         items.Add(new GlyphItem(Smufl.Rest(type), x, y, 4 * sp));
 
         if (!rest.IsMeasureRest)
