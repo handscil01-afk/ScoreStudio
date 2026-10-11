@@ -9,7 +9,7 @@ namespace ScoreStudio.Models;
 public sealed class ScoreProject
 {
     /// <summary>The project file schema version this build reads and writes.</summary>
-    public const int CurrentSchemaVersion = 14;
+    public const int CurrentSchemaVersion = 15;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string Title { get; set; } = "새 악보";
@@ -164,6 +164,9 @@ public sealed class ScoreMeasure
     /// <summary>Chord symbols written above the part, such as "Bbmaj7/D".</summary>
     public List<ScoreChordSymbol> ChordSymbols { get; set; } = new();
 
+    /// <summary>Tuplets in this measure, as spans of time in one voice (see docs/SPRINT4F_TUPLETS.md).</summary>
+    public List<ScoreTuplet> Tuplets { get; set; } = new();
+
     /// <summary>Clef changes in this measure. The clef at the start of the piece is <see cref="ScoreStaff.Clef"/>.</summary>
     public List<ScoreClefChange> ClefChanges { get; set; } = new();
 
@@ -198,6 +201,48 @@ public sealed class ScoreClefChange
     public int PositionNumerator { get; set; }
     public int PositionDenominator { get; set; } = 1;
     public ClefType Clef { get; set; } = ClefType.Treble;
+}
+
+/// <summary>
+/// A tuplet: <see cref="Actual"/> notes in the time of <see cref="Normal"/>, over a span of one voice. The notes in it
+/// keep their real lengths (a triplet eighth lasts a third of a quarter); the span only says how they are grouped and
+/// marked.
+/// </summary>
+public sealed class ScoreTuplet
+{
+    public int Staff { get; set; }
+    public int Voice { get; set; } = 1;
+
+    /// <summary>Where the span starts in the measure, in quarter notes.</summary>
+    public int PositionNumerator { get; set; }
+    public int PositionDenominator { get; set; } = 1;
+
+    /// <summary>How long the span really lasts, in quarter notes (three triplet eighths: 1).</summary>
+    public int DurationNumerator { get; set; } = 1;
+    public int DurationDenominator { get; set; } = 1;
+
+    public int Actual { get; set; } = 3;
+    public int Normal { get; set; } = 2;
+
+    /// <summary>True draws a bracket, false never; null brackets unless the notes are exactly one beam group.</summary>
+    public bool? Bracket { get; set; }
+
+    public TupletNumber ShowNumber { get; set; } = TupletNumber.Actual;
+
+    /// <summary>True above the notes, false below; null on the stem side.</summary>
+    public bool? Above { get; set; }
+}
+
+/// <summary>What a tuplet's number shows. Stored in project files by name.</summary>
+public enum TupletNumber
+{
+    /// <summary>The number of notes, e.g. "3".</summary>
+    Actual,
+
+    /// <summary>The ratio, e.g. "3:2".</summary>
+    Both,
+
+    None,
 }
 
 /// <summary>A 1st/2nd ending bracket.</summary>

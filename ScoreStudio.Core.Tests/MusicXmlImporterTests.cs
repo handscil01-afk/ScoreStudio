@@ -91,9 +91,10 @@ public sealed class MusicXmlImporterTests : IDisposable
             },
             part.Measures[1].Events.Select(Describe));
 
-        var warning = Assert.Single(result.Warnings);
-        Assert.StartsWith("잇단음표", warning.Message);
-        Assert.Equal((1, "피아노 2마디"), (warning.Count, warning.FirstLocation));
+        // The triplet is kept as a span of its voice (it used to be a warning).
+        Assert.Empty(result.Warnings);
+        var tuplet = Assert.Single(part.Measures[1].Tuplets);
+        Assert.Equal((0, 1, 0, 1, 1, 3, 2), (tuplet.Staff, tuplet.Voice, tuplet.PositionNumerator, tuplet.DurationNumerator, tuplet.DurationDenominator, tuplet.Actual, tuplet.Normal));
     }
 
     [Fact]
@@ -147,6 +148,7 @@ public sealed class MusicXmlImporterTests : IDisposable
     [InlineData("part-groups.musicxml")]
     [InlineData("page-layout.musicxml")]
     [InlineData("lyrics-ties.musicxml")]
+    [InlineData("tuplets.musicxml")]
     public void ImportedCounts_MatchCountsTakenDirectlyFromTheSource(string file)
     {
         var source = XDocument.Load(Sample(file));
@@ -163,7 +165,8 @@ public sealed class MusicXmlImporterTests : IDisposable
             RepeatStarts: source.Descendants("repeat").Count(r => (string?)r.Attribute("direction") == "forward"),
             RepeatEnds: source.Descendants("repeat").Count(r => (string?)r.Attribute("direction") == "backward"),
             Voltas: source.Descendants("ending").Count(e => (string?)e.Attribute("type") == "start"),
-            BeamGroups: notes.Count(n => n.Elements("beam").Any(b => (string?)b.Attribute("number") is null or "1" && b.Value == "begin")));
+            BeamGroups: notes.Count(n => n.Elements("beam").Any(b => (string?)b.Attribute("number") is null or "1" && b.Value == "begin")),
+            Tuplets: source.Descendants("tuplet").Count(t => (string?)t.Attribute("type") == "start"));
 
         var result = MusicXmlImporter.ImportFile(Sample(file));
         var measures = result.Project.Parts.SelectMany(p => p.Measures).ToList();
@@ -178,9 +181,48 @@ public sealed class MusicXmlImporterTests : IDisposable
         Assert.Equal(expected.Ties, events.Count(e => e.TieToNext));
         Assert.Equal(expected.Chords, measures.Sum(m => m.ChordSymbols.Count));
         Assert.Equal(expected.BeamGroups, events.Count(e => e.Beams.FirstOrDefault(BeamType.End) == BeamType.Begin && e.Beams.Count > 0));
+        Assert.Equal(expected.Tuplets, measures.Sum(m => m.Tuplets.Count));
         Assert.Equal(
             (expected.RepeatStarts, expected.RepeatEnds, expected.Voltas),
             (measures.Count(m => m.RepeatStart), measures.Count(m => m.RepeatEnd), measures.Count(m => m.Volta is not null)));
+    }
+
+    [Fact]
+    public void Tuplets_AreReadAsSpansOfTheirVoice_WithRatioBracketNumberAndPlacement()
+    {
+        var result = MusicXmlImporter.ImportFile(Sample("tuplets.musicxml"));
+        string Describe(ScoreTuplet t) =>
+            $"{new Rational(t.PositionNumerator, t.PositionDenominator)}+{new Rational(t.DurationNumerator, t.DurationDenominator)} {t.Actual}:{t.Normal} "
+            + $"{(t.Bracket is { } b ? b ? "bracket" : "plain" : "auto")} {t.ShowNumber} {(t.Above is { } a ? a ? "above" : "below" : "stem")}";
+
+        var measures = result.Project.Parts[0].Measures;
+        Assert.Equal(new[] { "0+1 3:2 auto Actual stem", "1+1 3:2 auto Actual stem", "2+2 3:2 auto Actual stem" }, measures[0].Tuplets.Select(Describe));
+        // The nested triplet: the outer one over two beats and the inner one (3 in the time of 2 of the outer triplet's
+        // eighths) over its first third. Both start on a note whose time modification (9:4) is their product.
+        Assert.Equal(new[] { "0+1 3:2 plain Actual below", "1+1 3:2 auto Both stem", "2+2 3:2 bracket Actual stem", "2+2/3 3:2 auto Actual stem" },
+            measures[1].Tuplets.Select(Describe).OrderBy(d => d, StringComparer.Ordinal));
+        Assert.DoesNotContain(result.Warnings, w => w.Message.Contains("잇단음표"));
+
+        // Unmatched or measure-crossing tuplets are dropped with a warning.
+        var broken = MusicXmlImporter.ImportXml("""
+            <score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+              <measure number="1"><attributes><divisions>3</divisions></attributes>
+                <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><type>eighth</type>
+                  <time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>
+                  <notations><tuplet type="stop" number="4"/></notations></note>
+                <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><type>eighth</type>
+                  <time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>
+                  <notations><tuplet type="start"/></notations></note>
+              </measure>
+              <measure number="2">
+                <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><type>eighth</type>
+                  <time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>
+                  <notations><tuplet type="stop"/></notations></note>
+              </measure></part></score-partwise>
+            """, "broken.musicxml");
+        Assert.Empty(broken.Project.Parts[0].Measures.SelectMany(m => m.Tuplets));
+        Assert.Contains(broken.Warnings, w => w.Message.Contains("시작이 없는 잇단음표"));
+        Assert.Contains(broken.Warnings, w => w.Message.Contains("마디를 넘는 잇단음표"));
     }
 
     [Fact]

@@ -160,6 +160,7 @@ public sealed class PageRenderingTests
     [InlineData("two-voices")]
     [InlineData("latin-lyrics")]
     [InlineData("source-widths")]
+    [InlineData("tuplets")]
     public void ImportedMusicXml_DrawsClefsAndNoteheadsWhereTheLayoutPutsThem(string sample)
     {
         RunSta(() =>
@@ -171,6 +172,9 @@ public sealed class PageRenderingTests
             AssertGlyphsDrawn(page, Noteheads, 0.5, 1.2, 3, 1.2, 15, "notehead");
             AssertBeamsDrawn(page);
             AssertCurvesDrawn(page);
+            var tupletDigits = Enumerable.Range(0, 10).Select(d => (char)(Smufl.Tuplet0 + d)).ToArray();
+            if (page.Items.OfType<GlyphItem>().Any(g => tupletDigits.Contains(g.Glyph)))
+                AssertGlyphsDrawn(page, tupletDigits, 0, 2.5, 2, 0.3, 8, "tuplet number");
             if (page.Items.OfType<GlyphItem>().Any(g => g.Glyph == Smufl.BracketTop))
             {
                 AssertGlyphsDrawn(page, new[] { Smufl.BracketTop }, 0, 2.5, 3.5, 0.3, 10, "bracket top");

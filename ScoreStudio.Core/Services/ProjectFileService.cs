@@ -158,6 +158,9 @@ public static class ProjectFileService
     /// <summary>Longest font family name kept from a source file.</summary>
     public const int MaxFontFamilyLength = 100;
 
+    /// <summary>Largest tuplet number (notes, or the normal notes they stand for) a file may hold.</summary>
+    private const int MaxTupletNumber = 64;
+
     /// <summary>Fills in missing optional values and rejects data that would break later code.</summary>
     private static void Validate(ScoreProject project)
     {
@@ -240,6 +243,16 @@ public static class ProjectFileService
                     if (change is null || change.Staff < 0 || change.Staff >= part.Staves.Count || !Enum.IsDefined(change.Clef)
                         || change.PositionNumerator < 0 || change.PositionDenominator <= 0)
                         throw Corrupt($"{where}의 음자리표 변경 정보가 올바르지 않습니다.");
+                }
+
+                measure.Tuplets ??= new List<ScoreTuplet>();
+                foreach (var tuplet in measure.Tuplets)
+                {
+                    if (tuplet is null || tuplet.Staff < 0 || tuplet.Staff >= part.Staves.Count || tuplet.Voice < 1
+                        || tuplet.PositionNumerator < 0 || tuplet.PositionDenominator <= 0
+                        || tuplet.DurationNumerator <= 0 || tuplet.DurationDenominator <= 0
+                        || tuplet.Actual is < 1 or > MaxTupletNumber || tuplet.Normal is < 1 or > MaxTupletNumber || !Enum.IsDefined(tuplet.ShowNumber))
+                        throw Corrupt($"{where}의 잇단음표 정보가 올바르지 않습니다.");
                 }
 
                 measure.StaffDistances ??= new List<ScoreStaffDistance>();

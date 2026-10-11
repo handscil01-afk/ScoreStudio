@@ -44,6 +44,23 @@ public static class Smufl
     public const double ClefChangeScale = 0.75;
 
     public const double StemThickness = 0.12;
+
+    /// <summary>Tuplet number digits 0–9 (tuplet0 … tuplet9) and the colon of a ratio.</summary>
+    public const char Tuplet0 = '\uE880';
+    public const char TupletColon = '\uE88A';
+
+    /// <summary>Tuplet bracket line thickness (Bravura's engraving default), in staff spaces.</summary>
+    public const double TupletBracketThickness = 0.16;
+
+    /// <summary>Advance widths of the tuplet digits 0–9 at a 4-space em, in staff spaces (from the font).</summary>
+    private static readonly double[] TupletDigitWidths = { 1.276, 0.984, 1.276, 1.184, 1.212, 1.268, 1.216, 1.212, 1.252, 1.216 };
+
+    /// <summary>Width of a tuplet glyph (a digit or the colon) at a 4-space em, in staff spaces.</summary>
+    public static double TupletGlyphWidth(char glyph) =>
+        glyph == TupletColon ? 0.444 : glyph >= Tuplet0 && glyph <= Tuplet0 + 9 ? TupletDigitWidths[glyph - Tuplet0] : 0;
+
+    /// <summary>Height of the tuplet digits above their baseline at a 4-space em, in staff spaces.</summary>
+    public const double TupletDigitHeight = 1.5;
     public const double LegerLineThickness = 0.16;
     public const double LegerLineExtension = 0.4;
     public const double AugmentationDotWidth = 0.4;

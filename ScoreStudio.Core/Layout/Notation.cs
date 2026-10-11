@@ -52,6 +52,17 @@ public static partial class Notation
 
     public static Rational Length(NoteType type) => TypeLengths[(int)type];
 
+    /// <summary>
+    /// The written value of a duration inside tuplets whose ratios multiply to <paramref name="tupletRatio"/> (actual to
+    /// normal notes; 1 outside tuplets): the plain value it stands for, else as <see cref="ValueOf(Rational)"/>.
+    /// </summary>
+    public static NoteValue ValueOf(Rational duration, Rational tupletRatio)
+    {
+        if (tupletRatio != new Rational(1, 1) && TryPlain(new Rational(duration.Numerator * tupletRatio.Numerator, duration.Denominator * tupletRatio.Denominator), out var written))
+            return written with { IsTuplet = true };
+        return ValueOf(duration);
+    }
+
     /// <summary>Finds the written value for a duration in quarter notes: plain or dotted first, then common tuplets.</summary>
     public static NoteValue ValueOf(Rational duration)
     {

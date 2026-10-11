@@ -246,6 +246,27 @@ public sealed class ProjectFileServiceTests : IDisposable
     }
 
     [Fact]
+    public void Load_Version14File_HasNoTuplets_AndTupletsSurviveSaveAndReopen()
+    {
+        Assert.Empty(ProjectFileService.Parse("""{ "SchemaVersion": 14, "Parts": [ { "Measures": [ {} ] } ] }""").Parts[0].Measures[0].Tuplets);
+
+        var project = ScoreProject.CreateNew();
+        project.Parts[0].Measures[0].Tuplets.Add(new ScoreTuplet
+        {
+            Staff = 0, Voice = 2, PositionNumerator = 3, PositionDenominator = 2, DurationNumerator = 1, DurationDenominator = 2,
+            Actual = 5, Normal = 4, Bracket = false, ShowNumber = TupletNumber.Both, Above = true,
+        });
+        var path = PathFor("tuplets.scoreproj");
+        ProjectFileService.Save(path, project);
+
+        var tuplet = ProjectFileService.Load(path).Parts[0].Measures[0].Tuplets.Single();
+        Assert.Equal((0, 2, 3, 2, 1, 2, 5, 4, (bool?)false, TupletNumber.Both, (bool?)true),
+            (tuplet.Staff, tuplet.Voice, tuplet.PositionNumerator, tuplet.PositionDenominator, tuplet.DurationNumerator, tuplet.DurationDenominator,
+                tuplet.Actual, tuplet.Normal, tuplet.Bracket, tuplet.ShowNumber, tuplet.Above));
+        Assert.Contains("\"ShowNumber\": \"Both\"", File.ReadAllText(path));
+    }
+
+    [Fact]
     public void SaveThenLoad_PreservesSourceLayout()
     {
         var project = ScoreProject.CreateNew();
@@ -395,6 +416,13 @@ public sealed class ProjectFileServiceTests : IDisposable
         { """{ "SchemaVersion": 14, "Parts": [ { "Measures": [ { "SourceWidth": 0 } ] } ] }""", "마디 폭" },
         { """{ "SchemaVersion": 14, "Parts": [ { "Measures": [ { "SourceWidth": 250 } ] } ] }""", "마디 폭" },
         { """{ "SchemaVersion": 12, "Engraving": { "LyricFontFamily": "Times\nNew Roman" } }""", "페이지 배치 정보" },
+        { """{ "SchemaVersion": 15, "Parts": [ { "Measures": [ { "Tuplets": [ { "Staff": 1 } ] } ] } ] }""", "잇단음표" },
+        { """{ "SchemaVersion": 15, "Parts": [ { "Measures": [ { "Tuplets": [ { "DurationNumerator": 0 } ] } ] } ] }""", "잇단음표" },
+        { """{ "SchemaVersion": 15, "Parts": [ { "Measures": [ { "Tuplets": [ { "Actual": 0 } ] } ] } ] }""", "잇단음표" },
+        { """{ "SchemaVersion": 15, "Parts": [ { "Measures": [ { "Tuplets": [ { "Normal": 65 } ] } ] } ] }""", "잇단음표" },
+        { """{ "SchemaVersion": 15, "Parts": [ { "Measures": [ { "Tuplets": [ { "Voice": 0 } ] } ] } ] }""", "잇단음표" },
+        { """{ "SchemaVersion": 15, "Parts": [ { "Measures": [ { "Tuplets": [ null ] } ] } ] }""", "잇단음표" },
+        { """{ "SchemaVersion": 15, "Parts": [ { "Measures": [ { "Tuplets": [ { "ShowNumber": "Ratio" } ] } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
         { "{ \"SchemaVersion\": 12, \"Engraving\": { \"LyricFontFamily\": \"" + new string('a', 101) + "\" } }", "페이지 배치 정보" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": "Percussion" } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": 7 } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },

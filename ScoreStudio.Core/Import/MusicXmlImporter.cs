@@ -364,7 +364,6 @@ public static class MusicXmlImporter
         private static readonly Dictionary<string, string> NotationNames = new()
         {
             ["slur"] = "이음줄",
-            ["tuplet"] = "잇단음표 괄호·숫자 표시 (음 길이는 정확히 가져옴)",
             ["articulations"] = "아티큘레이션(스타카토, 악센트 등)",
             ["ornaments"] = "장식음 기호(트릴, 턴 등)",
             ["fermata"] = "페르마타",
@@ -409,10 +408,20 @@ public static class MusicXmlImporter
         private int _numerator = 4;
         private int _denominator = 4;
         private int _keyFifths;
+
+        /// <summary>Staff and voice of the last note that was not a chord member.</summary>
+        private int _chordStaff;
+        private int _chordVoice = 1;
         private int _staves = 1;
         private bool _firstMeasureDone;
         private string _location = "";
         private ScoreVolta? _openVolta;
+
+        /// <summary>Tuplets started and not yet stopped, by voice and tuplet number.</summary>
+        private readonly Dictionary<(int Voice, string Number), (ScoreMeasure Measure, ScoreTuplet Tuplet)> _openTuplets = new();
+
+        /// <summary>The last tuplet stop read: where (measure, voice, number) and at which note time.</summary>
+        private (ScoreMeasure? Measure, int Voice, string Number, Rational Position) _closedTuplet;
         private int _openVoltaStart;
 
         public PartReader(string name, string label, string instrument, ImportWarningCollector warnings)
@@ -438,6 +447,9 @@ public static class MusicXmlImporter
                 _openVolta.MeasureCount = measures.Count - _openVoltaStart;
                 _openVolta.OpenEnd = true;
             }
+
+            foreach (var _ in _openTuplets)
+                Warn("끝나지 않은 잇단음표의 숫자·괄호는 표시하지 않음");
 
             ApplyOctaveShifts(measures);
             foreach (var measure in measures)
@@ -813,7 +825,13 @@ public static class MusicXmlImporter
                 return;
             }
 
-            var item = new ScoreEvent { Staff = ReadStaff(note), Voice = ReadVoice(note) };
+            // A chord's other notes often leave out their voice and staff: they are the first note's.
+            var item = new ScoreEvent
+            {
+                Staff = isChord && note.Element("staff") is null ? _chordStaff : ReadStaff(note),
+                Voice = isChord && note.Element("voice") is null ? _chordVoice : ReadVoice(note),
+            };
+            if (!isChord) (_chordStaff, _chordVoice) = (item.Staff, item.Voice);
             if (note.Element("rest") is not null)
             {
                 item.Kind = "Rest";
@@ -839,6 +857,7 @@ public static class MusicXmlImporter
             item.TieToNext = item.Kind == "Note" && ReadTie(note);
             item.Beams = ReadBeams(note);
             item.StemUp = (string?)note.Element("stem") switch { "up" => true, "down" => false, _ => null };
+            ReadTuplets(note, measure, item, start + duration);
             ReadNotations(note);
             measure.Events.Add(item);
         }
@@ -990,10 +1009,91 @@ public static class MusicXmlImporter
             return types.Contains("start");
         }
 
+        /// <summary>
+        /// Pairs tuplet starts and stops of a voice by number into spans of the measure (docs/SPRINT4F_TUPLETS.md). The
+        /// ratio comes from the tuplet's own numbers, else from the start note's time modification.
+        /// </summary>
+        private void ReadTuplets(XElement note, ScoreMeasure measure, ScoreEvent item, Rational end)
+        {
+            var tuplets = note.Elements("notations").SelectMany(n => n.Elements("tuplet")).ToList();
+            // Some programs repeat the marks on every note of a chord: a start already open at this time, or a stop that
+            // already closed a span here, is the same tuplet.
+            var position = new Rational(item.PositionNumerator, item.PositionDenominator);
+            bool Repeated(XElement t) => (string?)t.Attribute("type") == "start"
+                ? _openTuplets.TryGetValue((item.Voice, TupletKey(t)), out var open) && new Rational(open.Tuplet.PositionNumerator, open.Tuplet.PositionDenominator) == position
+                : !_openTuplets.ContainsKey((item.Voice, TupletKey(t))) && _closedTuplet == (measure, item.Voice, TupletKey(t), position);
+            tuplets = tuplets.Where(t => !Repeated(t)).ToList();
+
+            var starts = tuplets.Where(t => (string?)t.Attribute("type") == "start")
+                .Select(t => (Element: t, Actual: Count(t.Element("tuplet-actual")?.Element("tuplet-number")), Normal: Count(t.Element("tuplet-normal")?.Element("tuplet-number"))))
+                .OrderBy(t => t.Actual is null || t.Normal is null) // tuplets that state their ratio first
+                .ToList();
+
+            // A note's time modification is the product of every tuplet it is in: a start without numbers of its own takes
+            // what is left after the tuplets open in its voice and the ones starting here with numbers.
+            var (outerActual, outerNormal) = (1, 1);
+            foreach (var open in _openTuplets.Where(o => o.Key.Voice == item.Voice))
+                (outerActual, outerNormal) = (outerActual * open.Value.Tuplet.Actual, outerNormal * open.Value.Tuplet.Normal);
+            foreach (var explicitStart in starts.Where(t => t.Actual is not null && t.Normal is not null))
+                (outerActual, outerNormal) = (outerActual * explicitStart.Actual!.Value, outerNormal * explicitStart.Normal!.Value);
+
+            foreach (var (tuplet, ownActual, ownNormal) in starts)
+            {
+                var key = (item.Voice, TupletKey(tuplet));
+                if (_openTuplets.Remove(key))
+                    Warn("끝나지 않은 잇단음표의 숫자·괄호는 표시하지 않음");
+
+                var actual = ownActual ?? Inner(Count(note.Element("time-modification")?.Element("actual-notes")), outerActual);
+                var normal = ownNormal ?? Inner(Count(note.Element("time-modification")?.Element("normal-notes")), outerNormal);
+                if (actual is not { } a || normal is not { } n)
+                {
+                    Warn("비율을 알 수 없는 잇단음표의 숫자·괄호는 표시하지 않음");
+                    continue;
+                }
+
+                _openTuplets[key] = (measure, new ScoreTuplet
+                {
+                    Staff = item.Staff, Voice = item.Voice, PositionNumerator = item.PositionNumerator, PositionDenominator = item.PositionDenominator,
+                    Actual = a, Normal = n,
+                    Bracket = (string?)tuplet.Attribute("bracket") switch { "yes" => true, "no" => false, _ => null },
+                    ShowNumber = (string?)tuplet.Attribute("show-number") switch { "both" => TupletNumber.Both, "none" => TupletNumber.None, _ => TupletNumber.Actual },
+                    Above = (string?)tuplet.Attribute("placement") switch { "above" => true, "below" => false, _ => null },
+                });
+            }
+
+            foreach (var tuplet in tuplets.Where(t => (string?)t.Attribute("type") == "stop"))
+            {
+                var key = (item.Voice, TupletKey(tuplet));
+                if (!_openTuplets.Remove(key, out var open))
+                {
+                    Warn("시작이 없는 잇단음표 끝은 무시함");
+                    continue;
+                }
+
+                var length = end - new Rational(open.Tuplet.PositionNumerator, open.Tuplet.PositionDenominator);
+                if (!ReferenceEquals(open.Measure, measure) || length.Sign <= 0
+                    || !TrySetFraction(length, (n, d) => (open.Tuplet.DurationNumerator, open.Tuplet.DurationDenominator) = (n, d)))
+                {
+                    Warn("마디를 넘는 잇단음표의 숫자·괄호는 표시하지 않음");
+                    continue;
+                }
+
+                measure.Tuplets.Add(open.Tuplet);
+                _closedTuplet = (measure, item.Voice, key.Item2, position);
+            }
+
+            static int? Count(XElement? element) =>
+                int.TryParse(element?.Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) && value is >= 1 and <= 64 ? value : null;
+
+            static string TupletKey(XElement tuplet) => ((string?)tuplet.Attribute("number"))?.Trim() ?? "1";
+
+            static int? Inner(int? total, int outer) => total is { } t && t % outer == 0 && t / outer >= 1 ? t / outer : total;
+        }
+
         private void ReadNotations(XElement note)
         {
             var notations = note.Elements("notations").SelectMany(n => n.Elements())
-                .Where(n => n.Name != "tied")
+                .Where(n => n.Name != "tied" && n.Name != "tuplet")
                 .Where(IsStartOrSingle);
             foreach (var name in notations.Select(n => n.Name.LocalName).Distinct())
                 Warn(NotationNames.TryGetValue(name, out var label) ? label : $"기호 <{name}>");

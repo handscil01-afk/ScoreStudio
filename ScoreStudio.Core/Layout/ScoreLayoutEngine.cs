@@ -935,6 +935,8 @@ public static partial class ScoreLayoutEngine
                 placed[at] = placed[at] with { Top = Math.Min(placed[at].Top, stemEnds[i].Top), Bottom = Math.Max(placed[at].Bottom, stemEnds[i].Bottom) };
             }
         }
+
+        DrawTuplets(items, measure, slots, staffTops, measureIndex, placed, boxes, sp);
     }
 
     private static void PlaceChordSymbols(

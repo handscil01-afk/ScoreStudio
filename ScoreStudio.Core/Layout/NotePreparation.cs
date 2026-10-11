@@ -89,6 +89,10 @@ internal sealed class PreparedMeasure
     public Rational Length { get; init; }
 
     public IReadOnlyList<MidMeasureClef> MidMeasureClefs { get; init; } = Array.Empty<MidMeasureClef>();
+
+    /// <summary>Tuplets of every part in this measure.</summary>
+    public IReadOnlyList<(int PartIndex, ScoreTuplet Tuplet)> Tuplets { get; set; } = Array.Empty<(int, ScoreTuplet)>();
+
     public required List<Rational> Onsets { get; init; }
 
     /// <summary>Room before each onset for accidentals, in staff spaces.</summary>
@@ -146,6 +150,7 @@ internal static class NotePreparation
         var beamsByMeasure = Enumerable.Range(0, measureCount).Select(_ => new List<PreparedBeam>()).ToArray();
         var symbolsByMeasure = Enumerable.Range(0, measureCount).Select(_ => new List<(int, ScoreChordSymbol)>()).ToArray();
         var midClefs = Enumerable.Range(0, measureCount).Select(_ => new List<MidMeasureClef>()).ToArray();
+        var tuplets = Enumerable.Range(0, measureCount).Select(_ => new List<(int, ScoreTuplet)>()).ToArray();
         var lengths = new Rational[measureCount];
 
         for (var p = 0; p < project.Parts.Count; p++)
@@ -161,6 +166,7 @@ internal static class NotePreparation
 
                 PrepareMeasurePart(part, p, m, measure, nominal, tiedFromPrevious, clefs, chordsByMeasure[m], beamsByMeasure[m]);
                 symbolsByMeasure[m].AddRange(measure.ChordSymbols.Select(c => (p, c)));
+                tuplets[m].AddRange(measure.Tuplets.Select(t => (p, t)));
                 foreach (var change in measure.ClefChanges.Where(c => c.PositionNumerator > 0))
                     midClefs[m].Add(new MidMeasureClef(p, change.Staff, new Rational(change.PositionNumerator, change.PositionDenominator), change.Clef));
             }
@@ -170,6 +176,7 @@ internal static class NotePreparation
         {
             measures[m] = Space(chordsByMeasure[m], beamsByMeasure[m], midClefs[m], lengths[m] == default ? new Rational(4, 1) : lengths[m],
                 lyricSize, lyricSerif, symbolsByMeasure[m]);
+            measures[m].Tuplets = tuplets[m];
         }
 
         return measures;
@@ -177,6 +184,23 @@ internal static class NotePreparation
 
     private static Rational Start(ScoreEvent e) => new(e.PositionNumerator, e.PositionDenominator);
     private static Rational Duration(ScoreEvent e) => new(e.DurationNumerator, e.DurationDenominator);
+
+    /// <summary>
+    /// How much the tuplets around an event shorten it: the product of their actual-to-normal ratios (9:4 inside a triplet
+    /// within a triplet), or 1 outside tuplets.
+    /// </summary>
+    public static Rational TupletRatio(ScoreMeasure measure, ScoreEvent e)
+    {
+        var ratio = new Rational(1, 1);
+        foreach (var t in measure.Tuplets)
+        {
+            var start = new Rational(t.PositionNumerator, t.PositionDenominator);
+            if (t.Staff == e.Staff && t.Voice == e.Voice && Start(e) >= start && Start(e) < start + new Rational(t.DurationNumerator, t.DurationDenominator))
+                ratio = new Rational(ratio.Numerator * t.Actual, ratio.Denominator * t.Normal);
+        }
+
+        return ratio;
+    }
 
     /// <summary>A chord whose notes are known but whose stem direction may still depend on its beam group.</summary>
     private sealed class PendingChord
@@ -218,7 +242,7 @@ internal static class NotePreparation
                 var first = chordEvents.First();
                 var duration = Duration(first);
                 var clef = clefs.ClefAt(partIndex, staff, measureIndex, Start(first));
-                var value = Notation.ValueOf(duration);
+                var value = Notation.ValueOf(duration, TupletRatio(measure, first));
                 var role = multiVoice ? (first.Voice == voices[0] ? 1 : -1) : 0;
 
                 if (first.Kind == "Rest")
