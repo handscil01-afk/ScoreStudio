@@ -145,9 +145,28 @@
                         <ComboBoxItem Content="Letter 세로" Tag="Letter|Portrait"/>
                         <ComboBoxItem Content="Letter 가로" Tag="Letter|Landscape"/>
                     </ComboBox>
+                    <TextBlock Text="가사 (Ctrl+L)" FontWeight="SemiBold"/>
+                    <DockPanel Margin="0,4,0,4">
+                        <TextBlock Text="절" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ComboBox x:Name="VerseInput" Width="60" HorizontalAlignment="Left" SelectedIndex="0">
+                            <ComboBoxItem Content="1"/>
+                            <ComboBoxItem Content="2"/>
+                            <ComboBoxItem Content="3"/>
+                            <ComboBoxItem Content="4"/>
+                            <ComboBoxItem Content="5"/>
+                            <ComboBoxItem Content="6"/>
+                        </ComboBox>
+                    </DockPanel>
+                    <TextBox x:Name="LyricInput" Margin="0,0,0,8" TextChanged="LyricInput_TextChanged" PreviewKeyDown="LyricInput_PreviewKeyDown"
+                             GotKeyboardFocus="TextInput_GotKeyboardFocus"
+                             ToolTip="음표를 고르고 음절을 칩니다. 공백: 다음 음표로, -: 하이픈을 붙이고 다음 음표로, _: 연장선. Enter: 남은 글자 넣기. 빈 칸에서 Delete: 그 음표의 가사 지우기, Esc: 악보로 돌아가기."/>
+                    <TextBlock Text="코드 이름 (Ctrl+K)" FontWeight="SemiBold"/>
+                    <TextBox x:Name="ChordInput" Margin="0,4,0,12" TextChanged="ChordInput_TextChanged" PreviewKeyDown="ChordInput_PreviewKeyDown"
+                             GotKeyboardFocus="TextInput_GotKeyboardFocus"
+                             ToolTip="예: C, Am7, F#m7b5, Bbmaj7/D. 공백이나 Enter: 넣고 다음 음표로. 빈 칸에서 Delete: 그 자리의 코드 이름 지우기, Esc: 악보로 돌아가기."/>
                     <TextBlock Text="개발 메모" FontWeight="SemiBold"/>
                     <TextBlock TextWrapping="Wrap" Foreground="#697586" Margin="0,4,0,0"
-                               Text="악보 화면은 오선, 음자리표, 조표, 박자표, 마디선, 음표, 쉼표, 빔(음표 잇기), 붙임줄, 잇단음표, 가사, 코드 이름, 도돌이표·볼타, 음자리표 변경, 옥타브 기호를 표시합니다. 키보드와 마우스(마우스 입력, N)로 음표·쉼표를 입력하고 고칠 수 있습니다(편집 > 키보드 입력 방법). 셈여림, 이음줄, 아티큘레이션, 글자 지시는 아직 가져오지도 표시하지도 않습니다. 편집 메뉴에서 조표·박자표·음자리표를 바꿀 수 있고, Ctrl+3(셋잇단)처럼 잇단음표를 넣을 수 있습니다. 가사·코드 이름 입력, MUSX 변환, PDF 출력은 아직 지원하지 않습니다."/>
+                               Text="악보 화면은 오선, 음자리표, 조표, 박자표, 마디선, 음표, 쉼표, 빔(음표 잇기), 붙임줄, 잇단음표, 가사, 코드 이름, 도돌이표·볼타, 음자리표 변경, 옥타브 기호를 표시합니다. 키보드와 마우스(마우스 입력, N)로 음표·쉼표를 입력하고 고칠 수 있습니다(편집 > 키보드 입력 방법). 셈여림, 이음줄, 아티큘레이션, 글자 지시는 아직 가져오지도 표시하지도 않습니다. 편집 메뉴에서 조표·박자표·음자리표를 바꿀 수 있고, Ctrl+3(셋잇단)처럼 잇단음표를 넣을 수 있습니다. 가사(Ctrl+L)와 코드 이름(Ctrl+K)은 이 칸 위의 입력 칸에서 넣습니다. MUSX 변환, PDF 출력은 아직 지원하지 않습니다."/>
                 </StackPanel>
             </Border>
         </Grid>

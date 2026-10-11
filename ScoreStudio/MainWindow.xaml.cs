@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using ScoreStudio.Editing;
 using ScoreStudio.Import;
@@ -287,6 +288,7 @@ public partial class MainWindow : Window
             "Ctrl+Z, Ctrl+Y : 실행 취소, 다시 실행\n" +
             "Ctrl+C, Ctrl+V : 입력 위치의 마디 복사, 붙여넣기\n" +
             "Esc : 선택 해제\n\n" +
+            "Ctrl+L : 가사 입력 칸 (공백·-·_ 로 다음 음표), Ctrl+K : 코드 이름 입력 칸 (공백·Enter로 다음 음표)\n" +
             "Ctrl+3 : 셋잇단음표 (첫 음 앞에서 누름, Ctrl+2~7·Ctrl+9는 그 개수의 잇단음표, Esc로 취소)\n" +
             "N : 마우스 입력 켜기·끄기 (켜면 오선 위를 눌러 그 높이의 음표를 넣고, Shift+누르기로 화음에 더함)\n\n" +
             "음표를 누르면 선택하고, 빈 곳을 누르면 그 마디에 입력 위치를 둡니다.\n" +
@@ -594,6 +596,137 @@ public partial class MainWindow : Window
                 SetZoom(1);
                 e.Handled = true;
                 break;
+            case Key.L:
+                LyricInput.Focus();
+                e.Handled = true;
+                break;
+            case Key.K:
+                ChordInput.Focus();
+                e.Handled = true;
+                break;
+        }
+    }
+
+    // ---- Lyrics and chord symbols (docs/SPRINT4G_LYRICS_CHORDS.md) -----------------------------------------------
+
+    /// <summary>Set while the window itself changes a text box, so that its TextChanged does not enter anything.</summary>
+    private bool _settingText;
+
+    private int Verse => Math.Max(0, VerseInput.SelectedIndex) + 1;
+
+    private void SetBoxText(TextBox box, string text)
+    {
+        _settingText = true;
+        box.Text = text;
+        box.CaretIndex = text.Length;
+        _settingText = false;
+    }
+
+    /// <summary>Typing lyrics or chord symbols starts at the selected note, or at the note at the cursor.</summary>
+    private void TextInput_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        _editor.SelectAtCursor();
+        RefreshMarks();
+    }
+
+    /// <summary>
+    /// Enters each syllable finished by a space, "-" or "_" and keeps the unfinished one in the box. The box only changes
+    /// when such a character came in, so a syllable the Korean input method is still composing is left alone.
+    /// </summary>
+    private void LyricInput_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_settingText || LyricInput is null || VerseInput is null) return;
+        var before = _editor.ChangeCount;
+        var (result, unfinished) = _editor.TypeLyrics(LyricInput.Text, Verse);
+        if (result is null) return;
+        SetBoxText(LyricInput, unfinished);
+        ShowEdit(result, before);
+    }
+
+    private void LyricInput_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        var key = e.Key == Key.ImeProcessed ? e.ImeProcessedKey : e.Key;
+        switch (key)
+        {
+            case Key.Enter when LyricInput.Text.Trim().Length == 0:
+                ScoreScroll.Focus();
+                e.Handled = true;
+                break;
+            case Key.Enter:
+                // After the input method has put its composed syllable into the box.
+                Dispatcher.InvokeAsync(() =>
+                {
+                    if (LyricInput.Text.Trim().Length == 0) return;
+                    var before = _editor.ChangeCount;
+                    var result = _editor.EnterLyric(LyricInput.Text, Verse);
+                    if (result.Done) SetBoxText(LyricInput, "");
+                    ShowEdit(result, before);
+                }, DispatcherPriority.Background);
+                e.Handled = e.Key != Key.ImeProcessed;
+                break;
+            case Key.Escape:
+                SetBoxText(LyricInput, "");
+                ScoreScroll.Focus();
+                e.Handled = true;
+                break;
+            case Key.Delete when LyricInput.Text.Length == 0:
+                var changes = _editor.ChangeCount;
+                ShowEdit(_editor.SetLyric("", Verse), changes);
+                e.Handled = true;
+                break;
+        }
+    }
+
+    /// <summary>A space after a chord symbol enters it and goes on to the next note.</summary>
+    private void ChordInput_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_settingText || ChordInput is null) return;
+        var text = ChordInput.Text;
+        var space = text.IndexOf(' ');
+        if (space < 0) return;
+        if (text[..space].Trim().Length == 0)
+        {
+            SetBoxText(ChordInput, text[(space + 1)..].TrimStart());
+            return;
+        }
+
+        EnterChordSymbol(text[..space], text[(space + 1)..]);
+    }
+
+    private void EnterChordSymbol(string symbol, string rest)
+    {
+        var before = _editor.ChangeCount;
+        var result = _editor.EnterChordSymbol(symbol);
+        SetBoxText(ChordInput, result.Done ? rest : symbol);
+        ShowEdit(result, before);
+    }
+
+    private void ChordInput_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        var key = e.Key == Key.ImeProcessed ? e.ImeProcessedKey : e.Key;
+        switch (key)
+        {
+            case Key.Enter when ChordInput.Text.Trim().Length == 0:
+                ScoreScroll.Focus();
+                e.Handled = true;
+                break;
+            case Key.Enter:
+                Dispatcher.InvokeAsync(() =>
+                {
+                    if (ChordInput.Text.Trim().Length > 0) EnterChordSymbol(ChordInput.Text, "");
+                }, DispatcherPriority.Background);
+                e.Handled = e.Key != Key.ImeProcessed;
+                break;
+            case Key.Escape:
+                SetBoxText(ChordInput, "");
+                ScoreScroll.Focus();
+                e.Handled = true;
+                break;
+            case Key.Delete when ChordInput.Text.Length == 0:
+                var changes = _editor.ChangeCount;
+                ShowEdit(_editor.EnterChordSymbol(""), changes);
+                e.Handled = true;
+                break;
         }
     }
 
@@ -638,7 +771,7 @@ public partial class MainWindow : Window
     private void About_Click(object sender, RoutedEventArgs e)
     {
         MessageBox.Show(this,
-            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·조표·박자표·마디선·음표·쉼표·빔·붙임줄·잇단음표·가사·코드 이름·도돌이표·볼타·음자리표 변경·옥타브 기호, 여러 페이지, 확대/축소), MusicXML 가져오기, 키보드와 마우스로 음표·쉼표 입력과 고치기, 조표·박자표·음자리표 바꾸기, 잇단음표 입력(실행 취소 포함)\n아직 가져오지 않음: 셈여림, 이음줄, 아티큘레이션, 글자 지시(가져오기 결과 창에 경고로 표시)\n아직 지원하지 않음: 가사·코드 이름 입력, MUSX 변환, PDF 출력",
+            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·조표·박자표·마디선·음표·쉼표·빔·붙임줄·잇단음표·가사·코드 이름·도돌이표·볼타·음자리표 변경·옥타브 기호, 여러 페이지, 확대/축소), MusicXML 가져오기, 키보드와 마우스로 음표·쉼표 입력과 고치기, 조표·박자표·음자리표 바꾸기, 잇단음표·가사·코드 이름 입력(실행 취소 포함)\n아직 가져오지 않음: 셈여림, 이음줄, 아티큘레이션, 글자 지시(가져오기 결과 창에 경고로 표시)\n아직 지원하지 않음: MUSX 변환, PDF 출력",
             "개발 상태", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
