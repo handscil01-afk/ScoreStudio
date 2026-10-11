@@ -282,6 +282,11 @@ public static class MusicXmlImporter
         var staffLayout = defaults.Elements("staff-layout").FirstOrDefault(s => (string?)s.Attribute("number") is null or "1");
         if (Tenths(staffLayout?.Element("staff-distance")) is { } staffDistance) engraving.StaffDistance = staffDistance / 10;
 
+        // Font sizes are in points.
+        if (double.TryParse((string?)defaults.Element("lyric-font")?.Attribute("font-size"), NumberStyles.Float, CultureInfo.InvariantCulture, out var points)
+            && points is >= 3 and <= 56)
+            engraving.LyricFontSize = points * 25.4 / 72;
+
         project.Engraving = engraving;
     }
 
@@ -877,6 +882,9 @@ public static class MusicXmlImporter
             return true;
         }
 
+        /// <summary>Lyrics marked placement="above" without a position sit 2.5 spaces above the staff.</summary>
+        private const double AboveStaffLyricY = 2.5;
+
         private List<ScoreLyric> ReadLyrics(XElement note)
         {
             var lyrics = new List<ScoreLyric>();
@@ -907,7 +915,13 @@ public static class MusicXmlImporter
                     _ => LyricSyllabic.Single,
                 };
                 var extend = element.Element("extend") is { } extendElement && IsStartOrSingle(extendElement);
-                lyrics.Add(new ScoreLyric { Verse = verse, Text = text, Syllabic = syllabic, Extend = extend });
+
+                // default-y is in tenths above the staff's top line (lyrics below the staff are negative).
+                double? y = double.TryParse((string?)element.Attribute("default-y"), NumberStyles.Float, CultureInfo.InvariantCulture, out var tenths)
+                    && Math.Abs(tenths) <= 2000
+                        ? tenths / 10
+                        : (string?)element.Attribute("placement") == "above" ? AboveStaffLyricY : null;
+                lyrics.Add(new ScoreLyric { Verse = verse, Text = text, Syllabic = syllabic, Extend = extend, Y = y });
             }
 
             return lyrics.OrderBy(l => l.Verse).ToList();

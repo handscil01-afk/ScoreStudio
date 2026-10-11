@@ -8,7 +8,9 @@ namespace ScoreStudio.Layout;
 /// <param name="Accidental">Alteration to print in front of the note (0 prints a natural), or null for none.</param>
 /// <param name="Side">−1 when the head sits left of the stem side, 1 when right of it (seconds in chords), else 0.</param>
 /// <param name="AccidentalColumn">0 for the column next to the noteheads, 1 for the next one to the left, …</param>
-internal sealed record PreparedNote(int Position, int? Accidental, int Side, int AccidentalColumn);
+/// <param name="Midi">Sounding pitch, used to find the note a tie goes to.</param>
+/// <param name="TieToNext">A tie runs from this note to the next note of the same pitch.</param>
+internal sealed record PreparedNote(int Position, int? Accidental, int Side, int AccidentalColumn, int Midi, bool TieToNext);
 
 /// <summary>Notes of one voice that start together on one staff (a chord or a single note), or a rest.</summary>
 internal sealed class PreparedChord
@@ -37,6 +39,9 @@ internal sealed class PreparedChord
     public IReadOnlyList<BeamType> Beams { get; init; } = Array.Empty<BeamType>();
 
     public bool IsBeamed => Beams.Count > 0;
+
+    /// <summary>Lyrics sung on this chord, one per verse.</summary>
+    public IReadOnlyList<ScoreLyric> Lyrics { get; init; } = Array.Empty<ScoreLyric>();
 
     /// <summary>Room needed left of the onset for accidentals and left-displaced heads, in staff spaces.</summary>
     public double LeftExtent { get; init; }
@@ -67,6 +72,12 @@ internal sealed class PreparedMeasure
     /// <summary>Space from each onset to the next (or to the barline), in staff spaces.</summary>
     public required double[] Segments { get; init; }
 
+    /// <summary>
+    /// The least each segment may be squeezed to: room for the notes and syllables, and never below
+    /// <see cref="NotePreparation.MinimumGapScale"/> of the natural gap.
+    /// </summary>
+    public required double[] MinSegments { get; init; }
+
     public bool IsEmpty => Onsets.Count == 0;
 }
 
@@ -82,7 +93,8 @@ internal static class NotePreparation
     /// <summary>Room for a clef change before a note in mid-measure, in staff spaces.</summary>
     public const double ClefChangeWidth = 2.6;
 
-    public static PreparedMeasure[] Prepare(ScoreProject project, int measureCount, ClefTimeline clefs)
+    /// <param name="lyricSize">Lyric font size in staff spaces, used to leave room for the syllables.</param>
+    public static PreparedMeasure[] Prepare(ScoreProject project, int measureCount, ClefTimeline clefs, double lyricSize)
     {
         var measures = new PreparedMeasure[measureCount];
         var tiedFromPrevious = new HashSet<(int Part, int Staff, int Voice, int Midi)>();
@@ -109,7 +121,7 @@ internal static class NotePreparation
         }
 
         for (var m = 0; m < measureCount; m++)
-            measures[m] = Space(chordsByMeasure[m], beamsByMeasure[m], midClefs[m], lengths[m] == default ? new Rational(4, 1) : lengths[m]);
+            measures[m] = Space(chordsByMeasure[m], beamsByMeasure[m], midClefs[m], lengths[m] == default ? new Rational(4, 1) : lengths[m], lyricSize);
         return measures;
     }
 
@@ -122,7 +134,8 @@ internal static class NotePreparation
         public required ScoreEvent First { get; init; }
         public required NoteValue Value { get; init; }
         public required int Role { get; init; }
-        public required List<(int Position, int? Accidental)> Notes { get; init; }
+        public required List<(int Position, int? Accidental, int Midi, bool Tie)> Notes { get; init; }
+        public required IReadOnlyList<ScoreLyric> Lyrics { get; init; }
         public required IReadOnlyList<BeamType> Beams { get; set; }
         public bool? GroupStemUp { get; set; }
     }
@@ -164,7 +177,7 @@ internal static class NotePreparation
                     continue;
                 }
 
-                var notes = new List<(int Position, int? Accidental)>();
+                var notes = new List<(int Position, int? Accidental, int Midi, bool Tie)>();
                 foreach (var note in chordEvents.Where(e => e.Kind == "Note").OrderBy(e => e.MidiPitch))
                 {
                     // Under an octave line the note is written one or two octaves away from its sounding pitch.
@@ -187,7 +200,7 @@ internal static class NotePreparation
 
                     if (note.TieToNext) tiedFromPrevious.Add(tieKey);
                     else tiedFromPrevious.Remove(tieKey);
-                    notes.Add((position, accidental));
+                    notes.Add((position, accidental, note.MidiPitch, note.TieToNext));
                 }
 
                 if (notes.Count == 0)
@@ -197,6 +210,7 @@ internal static class NotePreparation
                 {
                     First = first, Value = value, Role = role, Notes = notes,
                     Beams = chordEvents.Select(e => e.Beams).FirstOrDefault(b => b is { Count: > 0 }) ?? new List<BeamType>(),
+                    Lyrics = chordEvents.Select(e => e.Lyrics).FirstOrDefault(l => l is { Count: > 0 }) ?? new List<ScoreLyric>(),
                 });
             }
 
@@ -206,7 +220,7 @@ internal static class NotePreparation
             {
                 var stemUp = chord.GroupStemUp ?? StemUp(chord.Role, chord.Notes.Select(n => n.Position).ToList());
                 built[chord] = BuildChord(partIndex, staff, chord.First.Voice, Start(chord.First), chord.Value, stemUp, chord.Role,
-                    chord.Notes, chord.First.OctaveShift, chord.Beams);
+                    chord.Notes, chord.First.OctaveShift, chord.Beams, chord.Lyrics);
                 result.Add(built[chord]);
             }
 
@@ -285,7 +299,8 @@ internal static class NotePreparation
 
     private static PreparedChord BuildChord(
         int partIndex, int staff, int voice, Rational start, NoteValue value, bool stemUp, int role,
-        List<(int Position, int? Accidental)> notes, int octaveShift, IReadOnlyList<BeamType> beams)
+        List<(int Position, int? Accidental, int Midi, bool Tie)> notes, int octaveShift, IReadOnlyList<BeamType> beams,
+        IReadOnlyList<ScoreLyric> lyrics)
     {
         var sorted = notes.OrderBy(n => n.Position).ToList();
         var sides = new int[sorted.Count];
@@ -325,8 +340,8 @@ internal static class NotePreparation
         return new PreparedChord
         {
             PartIndex = partIndex, Staff = staff, Voice = voice, Start = start, Value = value, IsRest = false,
-            StemUp = stemUp, VoiceRole = role, OctaveShift = octaveShift, Beams = beams,
-            Notes = sorted.Select((n, i) => new PreparedNote(n.Position, n.Accidental, sides[i], columns[i])).ToList(),
+            StemUp = stemUp, VoiceRole = role, OctaveShift = octaveShift, Beams = beams, Lyrics = lyrics,
+            Notes = sorted.Select((n, i) => new PreparedNote(n.Position, n.Accidental, sides[i], columns[i], n.Midi, n.Tie)).ToList(),
             LeftExtent = displacedLeft + accidentalRoom,
             RightExtent = headWidth + displacedRight + Math.Max(DotsWidth(value), flagRoom),
         };
@@ -336,7 +351,7 @@ internal static class NotePreparation
     /// Horizontal spacing: every onset in the measure (across all parts) gets a column, and the gap to the next onset
     /// grows with the time between them, so simultaneous notes line up in every part.
     /// </summary>
-    private static PreparedMeasure Space(List<PreparedChord> chords, List<PreparedBeam> beams, List<MidMeasureClef> midClefs, Rational length)
+    private static PreparedMeasure Space(List<PreparedChord> chords, List<PreparedBeam> beams, List<MidMeasureClef> midClefs, Rational length, double lyricSize)
     {
         var onsets = chords.Where(c => !c.IsMeasureRest).Select(c => c.Start).Distinct().OrderBy(t => t).ToList();
         if (onsets.Count == 0 && chords.Count > 0)
@@ -350,6 +365,18 @@ internal static class NotePreparation
 
         var pre = new double[onsets.Count];
         var segments = new double[onsets.Count];
+        var minSegments = new double[onsets.Count];
+        var lyricLeft = new double[onsets.Count];
+        var lyricRight = new double[onsets.Count];
+        for (var i = 0; i < onsets.Count; i++)
+        {
+            foreach (var chord in chords.Where(c => c.Start == onsets[i] && !c.IsRest))
+            {
+                var (left, right) = LyricExtent(chord, lyricSize);
+                (lyricLeft[i], lyricRight[i]) = (Math.Max(lyricLeft[i], left), Math.Max(lyricRight[i], right));
+            }
+        }
+
         for (var i = 0; i < onsets.Count; i++)
         {
             var atOnset = chords.Where(c => c.Start == onsets[i] && !c.IsMeasureRest).ToList();
@@ -360,9 +387,74 @@ internal static class NotePreparation
             var gap = SpaceFor(next - onsets[i]);
             var needed = atOnset.Select(c => c.RightExtent + 0.3).DefaultIfEmpty(0).Max();
             segments[i] = Math.Max(gap, needed);
+            minSegments[i] = Math.Max(MinimumGapScale * gap, needed);
         }
 
-        return new PreparedMeasure { Chords = chords, Beams = beams, MidMeasureClefs = clefsAtOnsets, Onsets = onsets, Pre = pre, Segments = segments };
+        // A syllable must clear the next syllable (or the barline): the gaps between the two onsets, held notes included,
+        // grow in proportion until they are wide enough.
+        for (var i = 0; i < onsets.Count; i++)
+        {
+            if (lyricRight[i] <= 0) continue;
+            var next = i + 1;
+            while (next < onsets.Count && lyricRight[next] <= 0) next++;
+            var need = lyricRight[i] + (next < onsets.Count ? lyricLeft[next] + LyricGap * lyricSize : 0);
+            Widen(segments, i, next, need);
+            Widen(minSegments, i, next, need);
+        }
+
+        for (var i = 0; i < onsets.Count; i++)
+            minSegments[i] = Math.Min(minSegments[i], segments[i]);
+
+        return new PreparedMeasure
+        {
+            Chords = chords, Beams = beams, MidMeasureClefs = clefsAtOnsets, Onsets = onsets, Pre = pre, Segments = segments, MinSegments = minSegments,
+        };
+    }
+
+    /// <summary>
+    /// How far a gap between notes may shrink to keep the source file's line breaks (e.g. Finale's layout), as a factor
+    /// of the natural gap. Beyond that the measures are spread over more systems.
+    /// </summary>
+    public const double MinimumGapScale = 0.6;
+
+    /// <summary>
+    /// Least gap between two syllables, in ems. Like Finale's smart hyphens, a hyphen is only drawn where the gap is wider.
+    /// </summary>
+    public const double LyricGap = 0.3;
+
+    /// <summary>Widens gaps <paramref name="from"/> to <paramref name="to"/> − 1 in proportion until they add up to <paramref name="need"/>.</summary>
+    private static void Widen(double[] gaps, int from, int to, double need)
+    {
+        var sum = 0.0;
+        for (var k = from; k < to; k++) sum += gaps[k];
+        if (sum >= need) return;
+        for (var k = from; k < to; k++)
+            gaps[k] += sum > 0 ? (need - sum) * gaps[k] / sum : (need - sum) / (to - from);
+    }
+
+    /// <summary>
+    /// How far a chord's syllables reach left and right of its onset, in staff spaces. Syllables are centred under the
+    /// notehead; a syllable with an extender line starts at the notehead instead.
+    /// </summary>
+    public static (double Left, double Right) LyricExtent(PreparedChord chord, double lyricSize)
+    {
+        var head = Smufl.NoteheadWidth(chord.Value.Type);
+        var (left, right) = (0.0, 0.0);
+        foreach (var lyric in chord.Lyrics)
+        {
+            var width = TextMetrics.Width(lyric.Text, lyricSize);
+            if (lyric.Extend)
+            {
+                right = Math.Max(right, width);
+            }
+            else
+            {
+                left = Math.Max(left, width / 2 - head / 2);
+                right = Math.Max(right, head / 2 + width / 2);
+            }
+        }
+
+        return (left, right);
     }
 
     /// <summary>

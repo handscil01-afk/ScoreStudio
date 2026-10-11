@@ -9,7 +9,7 @@ namespace ScoreStudio.Models;
 public sealed class ScoreProject
 {
     /// <summary>The project file schema version this build reads and writes.</summary>
-    public const int CurrentSchemaVersion = 8;
+    public const int CurrentSchemaVersion = 9;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string Title { get; set; } = "새 악보";
@@ -78,6 +78,9 @@ public sealed class ScoreEngraving
 
     /// <summary>From the bottom line of one staff to the top line of the next within a system, unless a system says otherwise.</summary>
     public double StaffDistance { get; set; } = 8;
+
+    /// <summary>Lyric font size in millimetres (one em); null uses ScoreStudio's default.</summary>
+    public double? LyricFontSize { get; set; }
 }
 
 /// <summary>A staff's distance from the staff above it in the system that starts at this measure.</summary>
@@ -277,9 +280,14 @@ public sealed class ScoreLyric
 
     /// <summary>An extender line follows the syllable (it is held over several notes).</summary>
     public bool Extend { get; set; }
+
+    /// <summary>
+    /// Height of the lyric baseline from the source, in staff spaces above the staff's top line (negative is below the
+    /// staff). Null lets ScoreStudio place the line under the staff.
+    /// </summary>
+    public double? Y { get; set; }
 }
 
-/// <summary>Where a syllable sits in its word; a hyphen follows Begin and Middle.</summary>
 /// <summary>What a beam does at one note, as in MusicXML's &lt;beam&gt;.</summary>
 public enum BeamType
 {
@@ -294,6 +302,7 @@ public enum BeamType
     BackwardHook,
 }
 
+/// <summary>Where a syllable sits in its word; a hyphen follows Begin and Middle.</summary>
 public enum LyricSyllabic
 {
     Single,

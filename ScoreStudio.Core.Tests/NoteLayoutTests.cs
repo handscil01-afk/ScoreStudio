@@ -164,6 +164,7 @@ public sealed class NoteLayoutTests
     [InlineData("beams.musicxml")]
     [InlineData("part-groups.musicxml")]
     [InlineData("page-layout.musicxml")]
+    [InlineData("lyrics-ties.musicxml")]
     public void EveryImportedNoteGetsAHead_AndEveryRestAGlyph(string file)
     {
         var project = MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", file)).Project;
@@ -358,6 +359,78 @@ public sealed class NoteLayoutTests
         });
     }
 
+    private static (ScoreLayout Layout, List<TextItem> Lyrics) LyricsAndTies()
+    {
+        var layout = ScoreLayoutEngine.Layout(MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", "lyrics-ties.musicxml")).Project);
+        var lyrics = layout.Pages.SelectMany(p => p.Items).OfType<TextItem>().Where(t => Math.Abs(t.Size - 2.2 * Sp) < 1e-9).ToList();
+        return (layout, lyrics);
+    }
+
+    [Fact]
+    public void Lyrics_SitOnTheSourceLinesCentredUnderTheirNotes()
+    {
+        var (layout, lyrics) = LyricsAndTies();
+        var page = layout.Pages.Single();
+        var staffTop = page.Systems[0].Staves[0].Top;
+
+        // Verse 1 at default-y −80 (8 spaces below the top line), verse 2 at −110.
+        Assert.Equal("봄 사 랑 노 래 해 요", string.Join(" ", lyrics.Where(t => Math.Abs(t.Y - (staffTop + 8 * Sp)) < 1e-9).OrderBy(t => t.X).Select(t => t.Text)));
+        Assert.Equal("꽃 이 피 네", string.Join(" ", lyrics.Where(t => Math.Abs(t.Y - (staffTop + 11 * Sp)) < 1e-9).OrderBy(t => t.X).Select(t => t.Text)));
+
+        // Syllables are centred on their noteheads; the held syllable starts at its notehead.
+        var heads = Glyphs(layout, Noteheads).Where(h => h.Y < page.Systems[0].Bottom + 2 * Sp).ToList();
+        var spring = lyrics.Single(t => t.Text == "봄");
+        Assert.Equal((heads[0].X + Smufl.NoteheadWidth(NoteType.Quarter) * Sp / 2, TextAnchor.Middle), (spring.X, spring.Anchor));
+        var held = lyrics.Single(t => t.Text == "래");
+        Assert.Equal(TextAnchor.Start, held.Anchor);
+        Assert.Contains(heads, h => Math.Abs(h.X - held.X) < 1e-9);
+    }
+
+    [Fact]
+    public void Lyrics_DrawHyphensInsideWords_AndExtendersUnderHeldNotes()
+    {
+        var (layout, lyrics) = LyricsAndTies();
+        var page = layout.Pages.Single();
+        var size = 2.2 * Sp;
+        var lines = page.Items.OfType<LineItem>().Where(l => l.Y1 == l.Y2 && Math.Abs(l.Thickness - 0.06 * size) < 1e-9).ToList();
+
+        // One hyphen, between 사 and 랑, raised to the middle of the text.
+        var (sa, rang) = (lyrics.Single(t => t.Text == "사"), lyrics.Single(t => t.Text == "랑"));
+        var hyphen = Assert.Single(lines, l => Math.Abs(l.Y1 - (sa.Y - 0.28 * size)) < 1e-9);
+        Assert.True(hyphen.X1 > sa.X + TextMetrics.Width("사", size) / 2 && hyphen.X2 < rang.X - TextMetrics.Width("랑", size) / 2);
+
+        // One extender, from after 래 to the right edge of the last held note (the chord before 해).
+        var extender = Assert.Single(lines, l => Math.Abs(l.Y1 - sa.Y) < 1e-9);
+        var held = lyrics.Single(t => t.Text == "래");
+        var chordHead = Glyphs(layout, Noteheads).Where(h => h.X > held.X && h.X < lyrics.Single(t => t.Text == "해").X - Sp).Max(h => h.X);
+        Assert.True(extender.X1 > held.X + TextMetrics.Width("래", size));
+        Assert.Equal(chordHead + Smufl.NoteheadWidth(NoteType.Quarter) * Sp, extender.X2, 9);
+    }
+
+    [Fact]
+    public void Ties_CurveAwayFromStems_SplitInChords_AndContinueIntoTheNextSystem()
+    {
+        var (layout, _) = LyricsAndTies();
+        var page = layout.Pages.Single();
+        var curves = page.Items.OfType<CurveItem>().OrderBy(c => c.X1).ToList();
+        bool Above(CurveItem c) => c.ControlY1 < c.Y1;
+
+        // A4 over the barline (stem up: below), the C5–E5 chord (C below, E above), D5 out of system 1 and into system 2.
+        Assert.Equal(5, curves.Count);
+        var (first, second) = (page.Systems[0], page.Systems[1]);
+        var inFirst = curves.Where(c => c.Y1 < first.Bottom + 4 * Sp).ToList();
+        Assert.Equal(4, inFirst.Count);
+        Assert.False(Above(inFirst[0]));
+        var chordTies = inFirst.Skip(1).Take(2).OrderBy(c => c.Y1).ToList();
+        Assert.Equal((true, false), (Above(chordTies[0]), Above(chordTies[1])));
+
+        // The outgoing tie runs to the end of system 1; the incoming one ends just before the D5 of system 2.
+        Assert.Equal(first.Right - 0.5 * Sp, inFirst[3].X2, 9);
+        var incoming = Assert.Single(curves, c => c.Y1 > second.Top - 4 * Sp);
+        var d5 = Glyphs(layout, Noteheads).Single(h => h.Y > second.Top - 4 * Sp);
+        Assert.True(incoming.X2 < d5.X && incoming.X2 > d5.X - Sp);
+    }
+
     [Fact]
     public void SourceLayout_PlacesStavesAndSystemsAtTheSourceDistances()
     {
@@ -448,6 +521,42 @@ public sealed class NoteLayoutTests
 
         Assert.Equal(sourcePages, layout.Pages.Count);
         Assert.All(layout.Pages.SelectMany(p => p.Systems), s => Assert.True(s.Bottom <= layout.Pages[0].Height - project.Engraving.MarginBottom + 1e-6));
+    }
+
+    /// <summary>
+    /// Syllables of one lyric line never overlap (by the layout's own width estimate), even where spacing was squeezed
+    /// to keep the source's line breaks.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllScores))]
+    public void LyricSyllablesOfALineDoNotOverlap_InEveryScore(string file)
+    {
+        var project = MusicXmlImporter.ImportFile(file).Project;
+        var size = project.Engraving?.LyricFontSize ?? 2.2 * (project.Engraving?.StaffSpace ?? Sp);
+        var name = Path.GetFileName(file);
+        var overlaps = new List<string>();
+        foreach (var page in ScoreLayoutEngine.Layout(project).Pages)
+        {
+            var lines = page.Items.OfType<TextItem>().Where(t => Math.Abs(t.Size - size) < 1e-9)
+                .Select(t =>
+                {
+                    var width = TextMetrics.Width(t.Text, t.Size);
+                    var left = t.Anchor == TextAnchor.Middle ? t.X - width / 2 : t.X;
+                    return (t.Text, t.Y, Left: left, Right: left + width);
+                })
+                .GroupBy(t => Math.Round(t.Y, 3));
+            foreach (var line in lines)
+            {
+                var ordered = line.OrderBy(t => t.Left).ToList();
+                for (var i = 1; i < ordered.Count; i++)
+                {
+                    if (ordered[i].Left < ordered[i - 1].Right - 1e-6)
+                        overlaps.Add($"p{page.Number} '{ordered[i - 1].Text}'/'{ordered[i].Text}' at {ordered[i].Left:F1} mm by {ordered[i - 1].Right - ordered[i].Left:F2}");
+                }
+            }
+        }
+
+        Assert.True(overlaps.Count == 0, $"{name}: {overlaps.Count} overlaps: {string.Join("; ", overlaps)}");
     }
 
     /// <summary>Rules that hold for any score: beamed stems end exactly on their beam and carry no flag.</summary>

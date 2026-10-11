@@ -20,6 +20,7 @@
 | `score-part` / `part-name` / `instrument-name` | 파트 이름 / 악기 |
 | `part-name print-object="no"`, `part-group` (`group-symbol`, `group-barline`) | 이름 표시 여부, 파트 묶음(괄호 종류, 마디선 연결) — 스키마 7 |
 | `defaults` (`scaling`, `page-layout`, `system-layout`, `staff-layout`), `print`의 `system-layout`·`staff-layout` | 보표 크기, 용지(A4·Letter), 여백, 기본·줄별 줄 간격과 보표 간격 — 스키마 8 |
+| `lyric`의 `default-y`·`placement`, `defaults/lyric-font` | 가사 줄 높이, 가사 글꼴 크기 — 스키마 9 |
 | `measure number` | 마디 번호 (숫자가 아니면 순서 번호를 쓰고 경고) |
 | `attributes`: `divisions`, `time`, `key/fifths`, `staves`, `clef` | 길이 단위, 박자표, 조표(5도권 수), 보표 수, 음자리표 |
 | `note` + `pitch` (`step`, `alter`, `octave`) | 음표: MIDI 음높이, 철자(예: `Eb5`) |

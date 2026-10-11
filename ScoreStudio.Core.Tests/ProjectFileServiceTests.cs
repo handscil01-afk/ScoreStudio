@@ -249,7 +249,8 @@ public sealed class ProjectFileServiceTests : IDisposable
     public void SaveThenLoad_PreservesSourceLayout()
     {
         var project = ScoreProject.CreateNew();
-        project.Engraving = new ScoreEngraving { StaffSpace = 1.98, MarginLeft = 20, MarginRight = 21, MarginTop = 22, MarginBottom = 23, SystemDistance = 7.2, TopSystemDistance = 3.3, StaffDistance = 8 };
+        project.Engraving = new ScoreEngraving { StaffSpace = 1.98, MarginLeft = 20, MarginRight = 21, MarginTop = 22, MarginBottom = 23, SystemDistance = 7.2, TopSystemDistance = 3.3, StaffDistance = 8, LyricFontSize = 4 };
+        project.Parts[0].Measures[0].Events.Add(new ScoreEvent { Lyrics = { new ScoreLyric { Text = "가", Y = -9.2 } } });
         var measure = project.Parts[0].Measures[1];
         (measure.SystemDistance, measure.TopSystemDistance) = (17.4, 31.3);
         measure.StaffDistances.Add(new ScoreStaffDistance { Staff = 0, Distance = 14.5 });
@@ -263,6 +264,8 @@ public sealed class ProjectFileServiceTests : IDisposable
             (e.StaffSpace, e.MarginLeft, e.MarginRight, e.MarginTop, e.MarginBottom, e.SystemDistance, e.TopSystemDistance, e.StaffDistance));
         var m = loaded.Parts[0].Measures[1];
         Assert.Equal((17.4, 31.3, 14.5), (m.SystemDistance, m.TopSystemDistance, m.StaffDistances.Single().Distance));
+        Assert.Equal(4, e.LyricFontSize);
+        Assert.Equal(-9.2, loaded.Parts[0].Measures[0].Events[0].Lyrics.Single().Y);
     }
 
     [Fact]
@@ -377,6 +380,8 @@ public sealed class ProjectFileServiceTests : IDisposable
         { """{ "SchemaVersion": 8, "Engraving": { "SystemDistance": 500 } }""", "페이지 배치 정보" },
         { """{ "SchemaVersion": 8, "Parts": [ { "Measures": [ { "SystemDistance": -3 } ] } ] }""", "줄·보표 간격" },
         { """{ "SchemaVersion": 8, "Parts": [ { "Measures": [ { "StaffDistances": [ { "Staff": 1, "Distance": 9 } ] } ] } ] }""", "줄·보표 간격" },
+        { """{ "SchemaVersion": 9, "Engraving": { "LyricFontSize": 0.2 } }""", "페이지 배치 정보" },
+        { """{ "SchemaVersion": 9, "Parts": [ { "Measures": [ { "Events": [ { "Lyrics": [ { "Text": "가", "Y": 900 } ] } ] } ] } ] }""", "가사 정보" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": "Percussion" } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": 7 } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
     };

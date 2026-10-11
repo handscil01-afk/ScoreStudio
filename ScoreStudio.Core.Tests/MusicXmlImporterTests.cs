@@ -146,6 +146,7 @@ public sealed class MusicXmlImporterTests : IDisposable
     [InlineData("beams.musicxml")]
     [InlineData("part-groups.musicxml")]
     [InlineData("page-layout.musicxml")]
+    [InlineData("lyrics-ties.musicxml")]
     public void ImportedCounts_MatchCountsTakenDirectlyFromTheSource(string file)
     {
         var source = XDocument.Load(Sample(file));
@@ -273,6 +274,29 @@ public sealed class MusicXmlImporterTests : IDisposable
 
         Assert.Equal(new[] { 3, 5 }, melody.Measures.Where(m => m.SystemBreak).Select(m => m.Number));
         Assert.Equal(new[] { 5 }, melody.Measures.Where(m => m.PageBreak).Select(m => m.Number));
+    }
+
+    [Fact]
+    public void LyricPositions_AreReadFromDefaultY_AndPlacementAbove()
+    {
+        const string xml = """
+            <score-partwise>
+              <defaults><scaling><millimeters>7</millimeters><tenths>40</tenths></scaling><lyric-font font-family="Finale Lyrics" font-size="11.3"/></defaults>
+              <part-list><score-part id="P1"><part-name>A</part-name></score-part></part-list>
+              <part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes>
+                <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration>
+                  <lyric number="1" default-y="-92"><text>가</text></lyric>
+                  <lyric number="2" placement="above"><text>나</text></lyric>
+                  <lyric number="3"><text>다</text></lyric></note>
+              </measure></part>
+            </score-partwise>
+            """;
+
+        var project = MusicXmlImporter.ImportXml(xml, "lyrics").Project;
+
+        var lyrics = project.Parts[0].Measures[0].Events[0].Lyrics;
+        Assert.Equal(new double?[] { -9.2, 2.5, null }, lyrics.Select(l => l.Y));
+        Assert.Equal(11.3 * 25.4 / 72, project.Engraving!.LyricFontSize!.Value, 9);
     }
 
     [Fact]
@@ -601,6 +625,7 @@ public sealed class MusicXmlImporterTests : IDisposable
     [InlineData("beams.musicxml")]
     [InlineData("part-groups.musicxml")]
     [InlineData("page-layout.musicxml")]
+    [InlineData("lyrics-ties.musicxml")]
     public void ImportedProject_SurvivesSaveAndReopen(string file)
     {
         var imported = MusicXmlImporter.ImportFile(Sample(file)).Project;

@@ -132,7 +132,7 @@ public static class ProjectFileService
         // Older files lack newer fields (version 1: staves; version 2: key, staff, voice; version 3: repeats, voltas,
         // chord symbols, all lyric verses, ties; version 4: clef changes, hidden staves, breaks, octave lines;
         // version 5: beams, so older files show flags until the score is imported again; version 6: hidden part names
-        // and part groups; version 7: source page layout).
+        // and part groups; version 7: source page layout; version 8: lyric positions and lyric font size).
         // Validate and the model defaults fill them in, and a version 1–3 "Lyric" becomes verse 1.
         // Saving always writes the current version.
     }
@@ -158,7 +158,8 @@ public static class ProjectFileService
             && (!InRange(engraving.StaffSpace, 0.5, 5) || !InRange(engraving.MarginLeft, 0, 100) || !InRange(engraving.MarginRight, 0, 100)
                 || !InRange(engraving.MarginTop, 0, 100) || !InRange(engraving.MarginBottom, 0, 100)
                 || !InRange(engraving.SystemDistance, 0, MaxDistance) || !InRange(engraving.TopSystemDistance, 0, MaxDistance)
-                || !InRange(engraving.StaffDistance, 0, MaxDistance)))
+                || !InRange(engraving.StaffDistance, 0, MaxDistance)
+                || (engraving.LyricFontSize is { } lyricSize && !InRange(lyricSize, 1, 20))))
             throw Corrupt("페이지 배치 정보(보표 크기, 여백, 간격)가 올바르지 않습니다.");
 
         for (var g = 0; g < project.PartGroups.Count; g++)
@@ -265,7 +266,7 @@ public static class ProjectFileService
                     item.LegacyLyric = null;
                     foreach (var lyric in item.Lyrics)
                     {
-                        if (lyric is null || lyric.Verse < 1 || !Enum.IsDefined(lyric.Syllabic))
+                        if (lyric is null || lyric.Verse < 1 || !Enum.IsDefined(lyric.Syllabic) || (lyric.Y is { } y && !InRange(y, -MaxDistance, MaxDistance)))
                             throw Corrupt($"{where}의 {e + 1}번째 음표의 가사 정보가 올바르지 않습니다.");
                         lyric.Text ??= "";
                     }

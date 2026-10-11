@@ -66,7 +66,7 @@ public sealed record MeasureLayout(int MeasureIndex, double Left, double Right, 
 /// <summary>
 /// Turns score data into pages of positioned draw items. Pure computation: no WPF, no files, so it can be tested anywhere.
 /// </summary>
-public static class ScoreLayoutEngine
+public static partial class ScoreLayoutEngine
 {
     private const double TitleSize = 7;
     private const double ComposerSize = 3.5;
@@ -82,7 +82,10 @@ public static class ScoreLayoutEngine
 
     /// <param name="Prefix">Room at the start of the measure for a key or time signature change, in mm.</param>
     /// <param name="Scale">Factor applied to the note spacing when the system is stretched to the margin.</param>
-    private sealed record PlannedMeasure(int Index, double Prefix, double Width, double Scale);
+    /// <param name="SlackScale">
+    /// Below 1 when the system is squeezed: the part of each gap above its minimum that is kept (0 keeps only the minimum).
+    /// </param>
+    private sealed record PlannedMeasure(int Index, double Prefix, double Width, double Scale, double SlackScale);
 
     private sealed record PlannedSystem(int FirstMeasure, double Left, double HeaderWidth, IReadOnlyList<PlannedMeasure> Measures)
     {
@@ -126,7 +129,9 @@ public static class ScoreLayoutEngine
 
         var clefs = new ClefTimeline(project);
         var measures = BuildMeasureInfos(project);
-        var prepared = NotePreparation.Prepare(project, measures.Count, clefs);
+        var lyricSize = LyricSize(project, options);
+        var prepared = NotePreparation.Prepare(project, measures.Count, clefs, lyricSize / sp);
+        var pendingTies = new List<PendingTie>();
         var nameIndent = PartNameIndent(project);
         var planned = PlanSystems(measures, prepared, allSlots, contentLeft, contentRight, nameIndent, options);
 
@@ -148,7 +153,8 @@ public static class ScoreLayoutEngine
                 top = FirstSystemTop();
             }
 
-            var system = DrawSystem(page, project, planned[i], i == 0, i == planned.Count - 1, slots, clefs, measures, prepared, top, options);
+            var system = DrawSystem(page, project, planned[i], i == 0, i == planned.Count - 1, slots, clefs, measures, prepared, top, options,
+                lyricSize, pendingTies);
             page.Systems.Add(system);
             previousBottom = top + systemHeight;
 
@@ -283,14 +289,11 @@ public static class ScoreLayoutEngine
 
     private static double PartNameIndent(ScoreProject project)
     {
-        var widest = project.Parts.Where(p => p.ShowName).Select(p => EstimateTextWidth(p.Name, PartNameSize)).DefaultIfEmpty(0).Max();
+        var widest = project.Parts.Where(p => p.ShowName).Select(p => TextMetrics.Width(p.Name, PartNameSize)).DefaultIfEmpty(0).Max();
         var bracketRoom = project.PartGroups.Any(g => g.Symbol != PartGroupSymbol.None) ? 3 : 0;
         return widest <= 0 ? 0 : Math.Min(widest + 5 + bracketRoom, 43);
     }
 
-    /// <summary>Rough width without font metrics: Hangul and CJK are about one em wide, other characters about half.</summary>
-    private static double EstimateTextWidth(string? text, double size) =>
-        string.IsNullOrWhiteSpace(text) ? 0 : text.Trim().Sum(c => c >= '\u1100' ? size : size * 0.55);
 
     private static double TimeSignatureWidth(MeasureInfo m) =>
         Math.Max(Smufl.TimeSigWidth(m.Numerator), Smufl.TimeSigWidth(m.Denominator));
@@ -324,21 +327,21 @@ public static class ScoreLayoutEngine
     }
 
     /// <summary>Natural width of a measure's contents in staff spaces, and the part of it that stretches.</summary>
-    private static (double Width, double Stretch) MeasureContentWidth(PreparedMeasure measure, LayoutOptions options)
+    /// <summary>
+    /// Natural width of a measure's contents in staff spaces, the part of it that stretches, and how much of it can be
+    /// squeezed away without notes or syllables running into each other.
+    /// </summary>
+    private static (double Width, double Stretch, double Slack) MeasureContentWidth(PreparedMeasure measure, LayoutOptions options)
     {
         if (measure.IsEmpty)
-            return (options.MeasureMinWidth, options.MeasureMinWidth);
+            return (options.MeasureMinWidth, options.MeasureMinWidth, options.MeasureMinWidth * (1 - NotePreparation.MinimumGapScale));
 
         var segments = measure.Segments.Sum();
-        var width = Math.Max(MeasureLeftPadding + measure.Pre.Sum() + segments, MeasureMinContentWidth);
-        return (width, segments);
+        var fixedPart = MeasureLeftPadding + measure.Pre.Sum();
+        var width = Math.Max(fixedPart + segments, MeasureMinContentWidth);
+        var narrowest = Math.Max(fixedPart + measure.MinSegments.Sum(), MeasureMinContentWidth);
+        return (width, segments, Math.Max(0, width - narrowest));
     }
-
-    /// <summary>
-    /// How far note spacing may be squeezed to keep the source file's line breaks (e.g. Finale's layout), as a factor
-    /// of the natural spacing. Beyond that the measures are spread over more systems.
-    /// </summary>
-    private const double MinimumSpacingScale = 0.6;
 
     private static List<PlannedSystem> PlanSystems(
         List<MeasureInfo> measures, PreparedMeasure[] prepared, List<StaffSlot> slots,
@@ -361,19 +364,17 @@ public static class ScoreLayoutEngine
             while (segmentEnd < measures.Count && !measures[segmentEnd].SystemBreak) segmentEnd++;
             if (measures.Count == 0) segmentEnd = 0;
 
-            var segment = new List<(int Index, double Prefix, double Width, double Stretch)>();
+            var segment = new List<(int Index, double Prefix, double Width, double Stretch, double Slack)>();
             for (var m = next; m < segmentEnd; m++)
             {
                 var prefix = m > next ? MeasurePrefixWidth(measures[m]) * sp : 0;
-                var (content, stretch) = MeasureContentWidth(prepared[m], options);
-                segment.Add((m, prefix, prefix + content * sp, stretch * sp));
+                var (content, stretch, slack) = MeasureContentWidth(prepared[m], options);
+                segment.Add((m, prefix, prefix + content * sp, stretch * sp, slack * sp));
             }
 
             var used = header + segment.Sum(c => c.Width);
-            var totalStretch = segment.Sum(c => c.Stretch);
-            List<(int Index, double Prefix, double Width, double Stretch)> chosen;
-            if (used <= available
-                || (followSourceBreaks && totalStretch > 0 && 1 + (available - used) / totalStretch >= MinimumSpacingScale))
+            List<(int Index, double Prefix, double Width, double Stretch, double Slack)> chosen;
+            if (used <= available || (followSourceBreaks && used - available <= segment.Sum(c => c.Slack)))
             {
                 // The whole segment fits, if need be with tighter spacing.
                 chosen = segment;
@@ -381,7 +382,7 @@ public static class ScoreLayoutEngine
             else
             {
                 // Too long: fill the system greedily with as many measures as fit at natural spacing.
-                chosen = new List<(int Index, double Prefix, double Width, double Stretch)>();
+                chosen = new List<(int Index, double Prefix, double Width, double Stretch, double Slack)>();
                 var width = header;
                 foreach (var candidate in segment)
                 {
@@ -391,18 +392,24 @@ public static class ScoreLayoutEngine
                 }
             }
 
-            // Stretch (or squeeze) every system but the last to the right margin, in proportion to each measure's
-            // note spacing. The last system keeps its natural width unless it has to be squeezed.
+            // Stretch every system but the last to the right margin, in proportion to each measure's note spacing. A system
+            // that is too wide gives up the same share of every gap's slack, so no gap drops below its minimum.
+            // The last system keeps its natural width unless it has to be squeezed.
             var end = next + chosen.Count;
             used = header + chosen.Sum(c => c.Width);
-            totalStretch = chosen.Sum(c => c.Stretch);
+            var totalStretch = chosen.Sum(c => c.Stretch);
+            var totalSlack = chosen.Sum(c => c.Slack);
             var isLast = end >= measures.Count;
             var extra = totalStretch > 0 && (!isLast || used > available) ? available - used : 0;
+            var kept = extra < 0 && totalSlack > 0 ? Math.Max(0, 1 + extra / totalSlack) : 1;
             var plannedMeasures = chosen.Select(c =>
             {
+                if (extra < 0)
+                    return new PlannedMeasure(c.Index, c.Prefix, c.Width - c.Slack * (1 - kept), 1, kept);
+
                 var added = totalStretch > 0 ? extra * c.Stretch / totalStretch : 0;
                 var scale = c.Stretch > 0 ? (c.Stretch + added) / c.Stretch : 1;
-                return new PlannedMeasure(c.Index, c.Prefix, c.Width + added, scale);
+                return new PlannedMeasure(c.Index, c.Prefix, c.Width + added, scale, 1);
             }).ToList();
 
             systems.Add(new PlannedSystem(next, left, header, plannedMeasures));
@@ -415,7 +422,8 @@ public static class ScoreLayoutEngine
 
     private static SystemLayout DrawSystem(
         PageLayout page, ScoreProject project, PlannedSystem plan, bool isFirstSystem, bool isLastSystem,
-        List<StaffSlot> slots, ClefTimeline clefs, List<MeasureInfo> measures, PreparedMeasure[] prepared, double top, LayoutOptions options)
+        List<StaffSlot> slots, ClefTimeline clefs, List<MeasureInfo> measures, PreparedMeasure[] prepared, double top, LayoutOptions options,
+        double lyricSize, List<PendingTie> pendingTies)
     {
         var sp = options.StaffSpace;
         var items = page.Items;
@@ -537,7 +545,7 @@ public static class ScoreLayoutEngine
                     DrawTimeSignature(items, info, prefixX, staffTops, sp);
             }
 
-            DrawMeasureNotes(items, prepared[index], slots, staffTops, measureLeft + planned.Prefix, measureRight, planned.Scale, sp, placed);
+            DrawMeasureNotes(items, prepared[index], slots, staffTops, measureLeft + planned.Prefix, measureRight, planned, sp, placed, index);
 
             var isFinal = isLastSystem && k == plan.MeasureCount - 1;
             DrawBarline(items, project, slots, top, measureRight, isFinal, sp);
@@ -546,6 +554,8 @@ public static class ScoreLayoutEngine
         }
 
         DrawOctaveLines(items, placed, staffTops, sp);
+        DrawTies(items, placed, slots, staffTops, left + plan.HeaderWidth, right, pendingTies, sp);
+        DrawLyrics(items, placed, staffTops, right, lyricSize, sp);
 
         return new SystemLayout
         {
@@ -579,7 +589,7 @@ public static class ScoreLayoutEngine
 
     private static void DrawMeasureNotes(
         List<DrawItem> items, PreparedMeasure measure, List<StaffSlot> slots, double[] staffTops,
-        double contentLeft, double measureRight, double scale, double sp, List<PlacedChord> placed)
+        double contentLeft, double measureRight, PlannedMeasure plan, double sp, List<PlacedChord> placed, int measureIndex)
     {
         if (measure.IsEmpty) return;
 
@@ -592,7 +602,9 @@ public static class ScoreLayoutEngine
             preStart[measure.Onsets[i]] = x;
             x += measure.Pre[i] * sp;
             onsetX[measure.Onsets[i]] = x;
-            x += measure.Segments[i] * scale * sp;
+            x += (plan.SlackScale < 1
+                ? measure.MinSegments[i] + (measure.Segments[i] - measure.MinSegments[i]) * plan.SlackScale
+                : measure.Segments[i] * plan.Scale) * sp;
         }
 
         // Mid-measure clef changes sit at the start of the room reserved before their onset.
@@ -619,7 +631,7 @@ public static class ScoreLayoutEngine
             else
             {
                 var (top, bottom) = DrawChord(items, chord, onsetX[chord.Start], staffTop, sp);
-                placed.Add(new PlacedChord(slotIndex, chord, onsetX[chord.Start], top, bottom));
+                placed.Add(new PlacedChord(slotIndex, measureIndex, chord, onsetX[chord.Start], top, bottom));
             }
         }
 
@@ -637,8 +649,8 @@ public static class ScoreLayoutEngine
         }
     }
 
-    /// <summary>A drawn chord and how far up and down its heads, stem and beams reach, in mm.</summary>
-    private sealed record PlacedChord(int Slot, PreparedChord Chord, double X, double Top, double Bottom);
+    /// <summary>A drawn chord, the measure it is in, and how far up and down its heads, stem and beams reach, in mm.</summary>
+    private sealed record PlacedChord(int Slot, int Measure, PreparedChord Chord, double X, double Top, double Bottom);
 
     private const double BeamThickness = 0.5;
     private const double BeamSpacing = 0.25;

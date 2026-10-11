@@ -56,6 +56,21 @@ public static class PageRenderer
                     dc.DrawGeometry(Brushes.Black, null, band);
                     break;
 
+                case CurveItem curve:
+                    var (innerX1, innerY1, innerX2, innerY2) = curve.InnerControls();
+                    var crescent = new StreamGeometry();
+                    using (var context = crescent.Open())
+                    {
+                        context.BeginFigure(Mm(curve.X1, curve.Y1), isFilled: true, isClosed: true);
+                        context.BezierTo(Mm(curve.ControlX1, curve.ControlY1), Mm(curve.ControlX2, curve.ControlY2), Mm(curve.X2, curve.Y2),
+                            isStroked: false, isSmoothJoin: false);
+                        context.BezierTo(Mm(innerX2, innerY2), Mm(innerX1, innerY1), Mm(curve.X1, curve.Y1), isStroked: false, isSmoothJoin: false);
+                    }
+
+                    crescent.Freeze();
+                    dc.DrawGeometry(Brushes.Black, null, crescent);
+                    break;
+
                 case GlyphItem glyph when music is { } musicTypeface:
                     var symbol = Format(glyph.Glyph.ToString(), musicTypeface, glyph.Size, pixelsPerDip);
                     dc.DrawText(symbol, new Point(glyph.X * DipPerMm, glyph.Y * DipPerMm - symbol.Baseline));
@@ -74,6 +89,8 @@ public static class PageRenderer
             }
         }
     }
+
+    private static Point Mm(double x, double y) => new(x * DipPerMm, y * DipPerMm);
 
     private static FormattedText Format(string text, Typeface typeface, double sizeMm, double pixelsPerDip) =>
         new(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, sizeMm * DipPerMm, Brushes.Black, pixelsPerDip);

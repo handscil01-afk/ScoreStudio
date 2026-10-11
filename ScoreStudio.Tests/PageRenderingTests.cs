@@ -110,6 +110,24 @@ public sealed class PageRenderingTests
         }
     }
 
+    /// <summary>Each tie puts down ink along its length: on average at least half a pixel per pixel of width.</summary>
+    private static void AssertCurvesDrawn(PageLayout page)
+    {
+        var curves = page.Items.OfType<CurveItem>().ToList();
+        if (curves.Count == 0) return;
+
+        var (with, width, height, _) = Render(page);
+        var (without, _, _, _) = Render(Without(page, item => item is CurveItem));
+        var pixelsPerMm = Dpi / 25.4;
+        foreach (var curve in curves)
+        {
+            var ys = new[] { curve.Y1, curve.Y2, curve.ControlY1, curve.ControlY2 };
+            var ink = InkAdded(with, without, width, height, curve.X1, ys.Min() - 0.5, curve.X2, ys.Max() + 0.5);
+            var length = (curve.X2 - curve.X1) * pixelsPerMm;
+            Assert.True(ink >= length / 2, $"page {page.Number}: tie at ({curve.X1:F1}, {curve.Y1:F1}) mm added only {ink} dark pixels over {length:F0}");
+        }
+    }
+
     /// <summary>Each beam band fills at least a quarter of its bounding box (a band rising one space fills a third).</summary>
     private static void AssertBeamsDrawn(PageLayout page)
     {
@@ -138,6 +156,7 @@ public sealed class PageRenderingTests
     [InlineData("beams")]
     [InlineData("part-groups")]
     [InlineData("page-layout")]
+    [InlineData("lyrics-ties")]
     public void ImportedMusicXml_DrawsClefsAndNoteheadsWhereTheLayoutPutsThem(string sample)
     {
         RunSta(() =>
@@ -148,6 +167,7 @@ public sealed class PageRenderingTests
             AssertGlyphsDrawn(page, Clefs, 0.5, 8, 5, 6, 100, "clef");
             AssertGlyphsDrawn(page, Noteheads, 0.5, 1.2, 3, 1.2, 15, "notehead");
             AssertBeamsDrawn(page);
+            AssertCurvesDrawn(page);
             if (page.Items.OfType<GlyphItem>().Any(g => g.Glyph == Smufl.BracketTop))
             {
                 AssertGlyphsDrawn(page, new[] { Smufl.BracketTop }, 0, 2.5, 3.5, 0.3, 10, "bracket top");

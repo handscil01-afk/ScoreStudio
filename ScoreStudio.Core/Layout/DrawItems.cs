@@ -17,6 +17,23 @@ public sealed record LineItem(double X1, double Y1, double X2, double Y2, double
 public sealed record BeamItem(double X1, double Y1, double X2, double Y2, double Thickness) : DrawItem;
 
 /// <summary>
+/// A tie or slur: a filled crescent between (<paramref name="X1"/>, <paramref name="Y1"/>) and (<paramref name="X2"/>,
+/// <paramref name="Y2"/>). Its outer edge is the cubic Bézier curve through the two control points; the inner edge uses
+/// the same control points moved back towards the ends by 4/3 × <paramref name="Thickness"/>, so the crescent is
+/// <paramref name="Thickness"/> thick in the middle and pointed at the ends.
+/// </summary>
+public sealed record CurveItem(
+    double X1, double Y1, double ControlX1, double ControlY1, double ControlX2, double ControlY2, double X2, double Y2, double Thickness) : DrawItem
+{
+    /// <summary>The inner edge's control points (the curve bulges away from the line between the ends).</summary>
+    public (double X1, double Y1, double X2, double Y2) InnerControls()
+    {
+        var shift = Math.Sign((ControlY1 + ControlY2) / 2 - (Y1 + Y2) / 2) * Thickness * 4 / 3;
+        return (ControlX1, ControlY1 - shift, ControlX2, ControlY2 - shift);
+    }
+}
+
+/// <summary>
 /// A SMuFL glyph from the music font. (<paramref name="X"/>, <paramref name="Y"/>) is the glyph origin on its
 /// baseline; <paramref name="Size"/> is the font size (one em) in millimetres, which SMuFL defines as four staff spaces.
 /// </summary>

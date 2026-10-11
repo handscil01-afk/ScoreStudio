@@ -9,7 +9,7 @@
             <TextBlock x:Name="SummaryText" Margin="0,8,0,0" TextWrapping="Wrap"/>
             <Border Background="#FFF6E5" BorderBrush="#E8C88A" BorderThickness="1" Padding="10" Margin="0,12,0,0">
                 <TextBlock TextWrapping="Wrap" Foreground="#5C4210"
-                           Text="음표, 쉼표, 조표, 빔(음표 잇기), 음자리표 변경, 옥타브 기호(8va 등)는 악보 화면에 표시되고, 숨긴 보표와 원본의 줄·페이지 나눔도 따릅니다. 가사, 코드 이름, 붙임줄, 도돌이표·볼타는 저장되지만 아직 화면에 표시되지 않습니다(다음 단계에서 구현). 원본 파일은 바뀌지 않았습니다. 결과를 보관하려면 '저장'으로 .scoreproj 파일을 만드세요."/>
+                           Text="음표, 쉼표, 조표, 빔(음표 잇기), 붙임줄, 가사, 음자리표 변경, 옥타브 기호(8va 등)는 악보 화면에 표시되고, 숨긴 보표와 원본의 줄·페이지 나눔도 따릅니다. 코드 이름, 도돌이표·볼타는 저장되지만 아직 화면에 표시되지 않습니다(다음 단계에서 구현). 원본 파일은 바뀌지 않았습니다. 결과를 보관하려면 '저장'으로 .scoreproj 파일을 만드세요."/>
             </Border>
             <TextBlock x:Name="WarningHeader" FontWeight="SemiBold" Margin="0,14,0,6"/>
         </StackPanel>
