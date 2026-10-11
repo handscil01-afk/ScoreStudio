@@ -464,7 +464,7 @@ public sealed class NoteLayoutTests
         var page = layout.Pages[0];
         var system = page.Systems[0];
         var staffTop = system.Staves[0].Top;
-        var symbols = page.Items.OfType<TextItem>().Where(t => t.Y < staffTop && t.Y > staffTop - 6 * Sp && t.Anchor == TextAnchor.Start)
+        var symbols = page.Items.OfType<TextItem>().Where(t => t.Y < staffTop && t.Y > staffTop - 6 * Sp && Math.Abs(t.Size - 2.2 * Sp) < 1e-9)
             .OrderBy(t => t.X).ToList();
         var heads = Glyphs(layout, Noteheads).Where(h => h.Y > staffTop - 2 * Sp && h.Y < system.Bottom + 2 * Sp).ToList();
 
@@ -478,6 +478,81 @@ public sealed class NoteLayoutTests
         var noChord = symbols.Single(s => s.Text == "N.C.");
         Assert.DoesNotContain(heads, h => Math.Abs(h.X - noChord.X) < 1e-6);
         Assert.True(noChord.X > symbols.Single(s => s.Text == "Gsus4").X && noChord.X < symbols.Single(s => s.Text == "Gadd9").X);
+    }
+
+    private static List<GlyphItem> RepeatDots(PageLayout page, double staffTop) =>
+        page.Items.OfType<GlyphItem>().Where(g => g.Glyph == Smufl.AugmentationDot
+            && (Math.Abs(g.Y - (staffTop + 1.5 * Sp)) < 1e-9 || Math.Abs(g.Y - (staffTop + 2.5 * Sp)) < 1e-9)).OrderBy(g => g.X).ToList();
+
+    [Fact]
+    public void Repeats_StartAfterTheHeader_AndEndOnTheBarline()
+    {
+        // Hymn sample: repeat from measure 1 (the start of the system) to the end of measure 2.
+        var layout = ScoreLayoutEngine.Layout(MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", "hymn-repeats-chords.musicxml")).Project);
+        var page = layout.Pages[0];
+        var system = page.Systems[0];
+        var staffTop = system.Staves[0].Top;
+        var thick = Smufl.ThickBarlineThickness * Sp;
+        var thickLines = page.Items.OfType<LineItem>().Where(l => l.X1 == l.X2 && Math.Abs(l.Thickness - thick) < 1e-9).OrderBy(l => l.X1).ToList();
+        var dots = RepeatDots(page, staffTop);
+
+        // Start: the thick line after the time signature, then dots before the first note.
+        var timeSignature = page.Items.OfType<GlyphItem>().Where(g => g.Glyph >= Smufl.TimeSig0 && g.Glyph <= Smufl.TimeSig0 + 9).Max(g => g.X);
+        Assert.True(thickLines[0].X1 > timeSignature + Smufl.TimeSigWidth(4) * Sp);
+        Assert.Equal(4, dots.Count);
+        Assert.True(dots[1].X < Glyphs(layout, Noteheads)[0].X);
+
+        // End: dots, thin line and a thick line that ends on measure 2's barline.
+        Assert.Equal(system.Measures[1].Right - thick / 2, thickLines[1].X1, 9);
+        Assert.InRange(dots[2].X, system.Measures[1].Right - RepeatSignWidthMm, system.Measures[1].Right);
+    }
+
+    private const double RepeatSignWidthMm = 2.2 * Sp;
+
+    [Fact]
+    public void EndAndStartRepeatOnOneBarline_ShareTheThickLine()
+    {
+        var project = OnePart(0, new[] { Note("C5", 72, 0, 4) }, new[] { Note("D5", 74, 0, 4) });
+        project.Parts[0].Measures[0].RepeatEnd = true;
+        project.Parts[0].Measures[1].RepeatStart = true;
+        var page = ScoreLayoutEngine.Layout(project).Pages.Single();
+        var system = page.Systems.Single();
+        var barline = system.Measures[0].Right;
+
+        var lines = page.Items.OfType<LineItem>().Where(l => l.X1 == l.X2 && Math.Abs(l.X1 - barline) < 2 * Sp).OrderBy(l => l.X1).ToList();
+        Assert.Equal(new[] { Smufl.ThinBarlineThickness, Smufl.ThickBarlineThickness, Smufl.ThinBarlineThickness },
+            lines.Select(l => Math.Round(l.Thickness / Sp, 3)));
+        var dots = RepeatDots(page, system.Staves[0].Top);
+        Assert.Equal(2, dots.Count(d => d.X < barline));
+        Assert.Equal(2, dots.Count(d => d.X > barline));
+    }
+
+    [Fact]
+    public void Voltas_HangAboveChordSymbols_AndContinueIntoTheNextSystem()
+    {
+        var project = OnePart(0, new[] { Note("C5", 72, 0, 4) }, new[] { Note("D5", 74, 0, 4) }, new[] { Note("E5", 76, 0, 4) });
+        var measures = project.Parts[0].Measures;
+        measures[0].Volta = new ScoreVolta { Numbers = "1", MeasureCount = 2 };
+        measures[1].SystemBreak = true;
+        measures[2].Volta = new ScoreVolta { Numbers = "2", MeasureCount = 1, OpenEnd = true };
+        measures[0].ChordSymbols.Add(new ScoreChordSymbol { RootStep = "C", Text = "C" });
+        var page = ScoreLayoutEngine.Layout(project).Pages.Single();
+        var (first, second) = (page.Systems[0], page.Systems[1]);
+        var thin = Smufl.ThinBarlineThickness * Sp;
+        var lines = page.Items.OfType<LineItem>().Where(l => Math.Abs(l.Thickness - thin) < 1e-9 && l.Y1 < first.Top - Sp || Math.Abs(l.Thickness - thin) < 1e-9 && l.Y1 < second.Top - Sp && l.Y1 > first.Bottom).ToList();
+        var texts = page.Items.OfType<TextItem>().Where(t => t.Text is "1." or "2.").OrderBy(t => t.Y).ToList();
+
+        // "1." starts in system 1 with a hook and runs to its end without a closing hook; it closes in system 2.
+        Assert.Equal(new[] { "1.", "2." }, texts.Select(t => t.Text));
+        var horizontals = lines.Where(l => l.Y1 == l.Y2).OrderBy(l => l.Y1).ThenBy(l => l.X1).ToList();
+        Assert.Equal(3, horizontals.Count);
+        Assert.Equal(first.Right, horizontals[0].X2, 9);
+        var hooks = lines.Where(l => l.X1 == l.X2).ToList();
+        Assert.Equal(3, hooks.Count); // start of "1.", end of "1." in system 2, start of "2." (open end)
+
+        // The bracket's number sits above the chord symbol.
+        var symbol = page.Items.OfType<TextItem>().Single(t => t.Text == "C");
+        Assert.True(texts[0].Y < symbol.Y - 0.75 * symbol.Size);
     }
 
     [Fact]

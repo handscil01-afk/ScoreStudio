@@ -76,7 +76,10 @@ public static partial class ScoreLayoutEngine
 
     private sealed record MeasureInfo(
         int Number, int Numerator, int Denominator, bool ShowsTimeSignature, int[] Keys, bool KeyChanges,
-        bool ClefChangeAtStart, bool SystemBreak, bool PageBreak);
+        bool ClefChangeAtStart, bool SystemBreak, bool PageBreak, bool RepeatStart, bool RepeatEnd, ScoreVolta? Volta);
+
+    /// <summary>Room for a repeat sign (thick line, thin line, dots and a gap), in staff spaces.</summary>
+    private const double RepeatSignWidth = 2.2;
 
     private sealed record StaffSlot(int PartIndex, int StaffIndex, ClefType Clef, double Offset);
 
@@ -281,7 +284,10 @@ public static partial class ScoreLayoutEngine
             infos.Add(new MeasureInfo(measure.Number, measure.Numerator, measure.Denominator, changed, keys, keyChanges,
                 ClefChangeAtStart: i > 0 && parts.Any(m => m.ClefChanges.Any(c => c.PositionNumerator == 0)),
                 SystemBreak: i > 0 && parts.Any(m => m.SystemBreak),
-                PageBreak: i > 0 && parts.Any(m => m.PageBreak)));
+                PageBreak: i > 0 && parts.Any(m => m.PageBreak),
+                RepeatStart: parts.Any(m => m.RepeatStart),
+                RepeatEnd: parts.Any(m => m.RepeatEnd),
+                Volta: parts.Select(m => m.Volta).FirstOrDefault(v => v is not null)));
         }
 
         return infos;
@@ -314,6 +320,7 @@ public static partial class ScoreLayoutEngine
         var key = KeySignatureWidth(first);
         if (key > 0) width += key + 1;
         if (first.ShowsTimeSignature) width += TimeSignatureWidth(first) + 1.5;
+        if (first.RepeatStart) width += RepeatSignWidth;
         return width;
     }
 
@@ -323,10 +330,12 @@ public static partial class ScoreLayoutEngine
         var width = m.ClefChangeAtStart ? NotePreparation.ClefChangeWidth : 0.0;
         if (m.KeyChanges) width += KeySignatureWidth(m) + 1;
         if (m.ShowsTimeSignature) width += TimeSignatureWidth(m) + 1;
-        return width > 0 ? width + 1 : 0;
+        if (width > 0) width += 1;
+
+        // A start repeat replaces the barline and comes before any clef, key or time change.
+        return m.RepeatStart ? width + RepeatSignWidth : width;
     }
 
-    /// <summary>Natural width of a measure's contents in staff spaces, and the part of it that stretches.</summary>
     /// <summary>
     /// Natural width of a measure's contents in staff spaces, the part of it that stretches, and how much of it can be
     /// squeezed away without notes or syllables running into each other.
@@ -369,7 +378,8 @@ public static partial class ScoreLayoutEngine
             {
                 var prefix = m > next ? MeasurePrefixWidth(measures[m]) * sp : 0;
                 var (content, stretch, slack) = MeasureContentWidth(prepared[m], options);
-                segment.Add((m, prefix, prefix + content * sp, stretch * sp, slack * sp));
+                var repeatEnd = measures[m].RepeatEnd ? RepeatSignWidth * sp : 0;
+                segment.Add((m, prefix, prefix + content * sp + repeatEnd, stretch * sp, slack * sp));
             }
 
             var used = header + segment.Sum(c => c.Width);
@@ -504,8 +514,10 @@ public static partial class ScoreLayoutEngine
             var first = measures[plan.FirstMeasure];
             var keyX = left + (1 + clefWidth + 1) * sp;
             DrawKeySignature(items, slots, slots.Select(s => s.Clef).ToArray(), staffTops, first.Keys, keyX, sp);
+            // The header ends with the time signature, or with a start repeat after it.
+            var headerEnd = left + plan.HeaderWidth - (first.RepeatStart ? RepeatSignWidth * sp : 0);
             if (first.ShowsTimeSignature)
-                DrawTimeSignature(items, first, left + plan.HeaderWidth - (TimeSignatureWidth(first) + 1.5) * sp, staffTops, sp);
+                DrawTimeSignature(items, first, headerEnd - (TimeSignatureWidth(first) + 1.5) * sp, staffTops, sp);
         }
 
         // Measures: clef/key/time changes, notes and rests, barlines.
@@ -522,9 +534,13 @@ public static partial class ScoreLayoutEngine
             var measureLeft = x;
             var measureRight = x + planned.Width;
 
+            // A start repeat at the start of a system follows the clef, key and time signature.
+            if (k == 0 && info.RepeatStart)
+                DrawBarline(items, project, slots, top, measureLeft - RepeatSignWidth * sp + 0.25 * sp, BarlineKind.StartRepeat, sp);
+
             if (k > 0 && planned.Prefix > 0)
             {
-                var prefixX = measureLeft + sp;
+                var prefixX = measureLeft + (info.RepeatStart ? RepeatSignWidth * sp : 0) + sp;
                 if (info.ClefChangeAtStart)
                 {
                     for (var i = 0; i < slots.Count; i++)
@@ -549,8 +565,10 @@ public static partial class ScoreLayoutEngine
 
             DrawMeasureNotes(items, prepared[index], slots, staffTops, measureLeft + planned.Prefix, measureRight, planned, sp, placed, index, symbols, rests);
 
-            var isFinal = isLastSystem && k == plan.MeasureCount - 1;
-            DrawBarline(items, project, slots, top, measureRight, isFinal, sp);
+            var kind = isLastSystem && k == plan.MeasureCount - 1 ? BarlineKind.Final : BarlineKind.Normal;
+            if (info.RepeatEnd) kind = BarlineKind.EndRepeat;
+            if (k + 1 < plan.MeasureCount && measures[plan.Measures[k + 1].Index].RepeatStart) kind |= BarlineKind.StartRepeat;
+            DrawBarline(items, project, slots, top, measureRight, kind, sp);
             measureLayouts.Add(new MeasureLayout(index, measureLeft, measureRight, info.ShowsTimeSignature));
             x = measureRight;
         }
@@ -558,7 +576,8 @@ public static partial class ScoreLayoutEngine
         DrawOctaveLines(items, placed, staffTops, sp);
         DrawTies(items, placed, slots, staffTops, left + plan.HeaderWidth, right, pendingTies, sp);
         DrawLyrics(items, placed, rests, staffTops, right, lyricSize, sp);
-        DrawChordSymbols(items, symbols, placed, staffTops, lyricSize, sp);
+        var symbolTops = DrawChordSymbols(items, symbols, placed, staffTops, lyricSize, sp);
+        DrawVoltas(items, plan, measures, measureLayouts, placed, staffTops[0], symbolTops.TryGetValue(0, out var symbolTop) ? symbolTop : double.MaxValue, sp);
 
         return new SystemLayout
         {
@@ -1054,14 +1073,32 @@ public static partial class ScoreLayoutEngine
         }
     }
 
+    /// <summary>What a barline looks like.</summary>
+    [Flags]
+    private enum BarlineKind
+    {
+        Normal = 0,
+
+        /// <summary>Thin and thick line: the end of the piece.</summary>
+        Final = 1,
+
+        /// <summary>Dots, thin and thick line ending at the barline: ":‖".</summary>
+        EndRepeat = 2,
+
+        /// <summary>Thick and thin line and dots starting at the barline: "‖:".</summary>
+        StartRepeat = 4,
+    }
+
     /// <summary>
     /// Barlines run through all staves of a part, and through all parts of a group that joins its barlines; elsewhere
-    /// they stop between parts so part names and lyrics stay readable.
+    /// they stop between parts so part names and lyrics stay readable. Repeat dots go in the two middle spaces of every
+    /// staff.
     /// </summary>
-    private static void DrawBarline(List<DrawItem> items, ScoreProject project, List<StaffSlot> slots, double top, double x, bool isFinal, double sp)
+    private static void DrawBarline(List<DrawItem> items, ScoreProject project, List<StaffSlot> slots, double top, double x, BarlineKind kind, double sp)
     {
         var thin = Smufl.ThinBarlineThickness * sp;
         var thick = Smufl.ThickBarlineThickness * sp;
+        var separation = Smufl.BarlineSeparation * sp;
         var runs = new List<List<StaffSlot>>();
         foreach (var part in slots.GroupBy(s => s.PartIndex))
         {
@@ -1072,20 +1109,55 @@ public static partial class ScoreLayoutEngine
             else runs.Add(part.ToList());
         }
 
+        var repeat = kind & (BarlineKind.EndRepeat | BarlineKind.StartRepeat);
         foreach (var run in runs)
         {
             var y1 = top + run[0].Offset;
             var y2 = top + run[^1].Offset + 4 * sp;
-            if (isFinal)
+            void Line(double centre, double width) => items.Add(new LineItem(centre, y1, centre, y2, width));
+
+            if (repeat == 0)
             {
-                items.Add(new LineItem(x - thick / 2, y1, x - thick / 2, y2, thick));
-                var thinX = x - thick - Smufl.BarlineSeparation * sp - thin / 2;
-                items.Add(new LineItem(thinX, y1, thinX, y2, thin));
+                if (kind.HasFlag(BarlineKind.Final))
+                {
+                    Line(x - thick / 2, thick);
+                    Line(x - thick - separation - thin / 2, thin);
+                }
+                else
+                {
+                    Line(x - thin / 2, thin);
+                }
+
+                continue;
             }
-            else
+
+            // One thick line on the barline; the thin line and dots on the side (or sides) that repeat.
+            Line(kind.HasFlag(BarlineKind.EndRepeat) ? x - thick / 2 : x + thick / 2, thick);
+            if (kind.HasFlag(BarlineKind.EndRepeat))
             {
-                items.Add(new LineItem(x - thin / 2, y1, x - thin / 2, y2, thin));
+                var thinX = x - thick - separation - thin / 2;
+                Line(thinX, thin);
+                RepeatDots(items, run, top, thinX - thin / 2 - RepeatDotGap * sp - Smufl.AugmentationDotWidth * sp, sp);
             }
+
+            if (kind.HasFlag(BarlineKind.StartRepeat))
+            {
+                var thinX = x + thick + separation + thin / 2;
+                Line(thinX, thin);
+                RepeatDots(items, run, top, thinX + thin / 2 + RepeatDotGap * sp, sp);
+            }
+        }
+    }
+
+    /// <summary>Gap between a repeat's thin line and its dots, in staff spaces.</summary>
+    private const double RepeatDotGap = 0.3;
+
+    private static void RepeatDots(List<DrawItem> items, List<StaffSlot> run, double top, double x, double sp)
+    {
+        foreach (var staff in run)
+        {
+            items.Add(new GlyphItem(Smufl.AugmentationDot, x, top + staff.Offset + 1.5 * sp, 4 * sp));
+            items.Add(new GlyphItem(Smufl.AugmentationDot, x, top + staff.Offset + 2.5 * sp, 4 * sp));
         }
     }
 }

@@ -33,8 +33,11 @@ public static partial class ScoreLayoutEngine
     /// baseline: the height the source gives most of them in this system, or else 2.5 spaces above the staff and clear
     /// of the highest note or stem.
     /// </summary>
-    private static void DrawChordSymbols(List<DrawItem> items, List<PlacedSymbol> symbols, List<PlacedChord> placed, double[] staffTops, double size, double sp)
+    /// <returns>The top of the symbols on each staff that has any, so brackets above can clear them.</returns>
+    private static Dictionary<int, double> DrawChordSymbols(
+        List<DrawItem> items, List<PlacedSymbol> symbols, List<PlacedChord> placed, double[] staffTops, double size, double sp)
     {
+        var tops = new Dictionary<int, double>();
         foreach (var staff in symbols.GroupBy(s => s.Slot))
         {
             var staffTop = staffTops[staff.Key];
@@ -45,7 +48,10 @@ public static partial class ScoreLayoutEngine
 
             foreach (var symbol in staff)
                 items.Add(new TextItem(ChordDisplay(symbol.Symbol.Text), symbol.X, baseline, size, TextAnchor.Start));
+            tops[staff.Key] = baseline - 0.75 * size;
         }
+
+        return tops;
     }
 
     /// <summary>The printed symbol with real flat and sharp signs after the root and the bass ("Bb/D" → "B♭/D").</summary>
