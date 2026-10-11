@@ -9,7 +9,7 @@ namespace ScoreStudio.Models;
 public sealed class ScoreProject
 {
     /// <summary>The project file schema version this build reads and writes.</summary>
-    public const int CurrentSchemaVersion = 12;
+    public const int CurrentSchemaVersion = 13;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string Title { get; set; } = "새 악보";
@@ -285,6 +285,12 @@ public sealed class ScoreEvent
     /// Empty when the note is not beamed (it keeps its flag). In a chord, the first note carries the chord's beams.
     /// </summary>
     public List<BeamType> Beams { get; set; } = new();
+
+    /// <summary>
+    /// Stem direction written in the source (Finale writes one for every note): true up, false down; null leaves it to
+    /// ScoreStudio's rules.
+    /// </summary>
+    public bool? StemUp { get; set; }
 }
 
 public sealed class ScoreLyric

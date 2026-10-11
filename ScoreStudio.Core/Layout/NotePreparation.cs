@@ -173,6 +173,10 @@ internal static class NotePreparation
         public required IReadOnlyList<ScoreLyric> Lyrics { get; init; }
         public required IReadOnlyList<int> ExtendEnds { get; init; }
         public required IReadOnlyList<BeamType> Beams { get; set; }
+
+        /// <summary>The source's stem direction for the chord, if it gives one.</summary>
+        public bool? SourceStemUp { get; init; }
+
         public bool? GroupStemUp { get; set; }
     }
 
@@ -250,6 +254,7 @@ internal static class NotePreparation
                 {
                     First = first, Value = value, Role = role, Notes = notes,
                     Beams = chordEvents.Select(e => e.Beams).FirstOrDefault(b => b is { Count: > 0 }) ?? new List<BeamType>(),
+                    SourceStemUp = chordEvents.Select(e => e.StemUp).FirstOrDefault(s => s is not null),
                     Lyrics = chordEvents.Select(e => e.Lyrics).FirstOrDefault(l => l is { Count: > 0 }) ?? new List<ScoreLyric>(),
                     ExtendEnds = chordEvents.SelectMany(e => e.ExtendEnds).Distinct().ToList(),
                 });
@@ -259,7 +264,7 @@ internal static class NotePreparation
             var built = new Dictionary<PendingChord, PreparedChord>();
             foreach (var chord in pending)
             {
-                var stemUp = chord.GroupStemUp ?? StemUp(chord.Role, chord.Notes.Select(n => n.Position).ToList());
+                var stemUp = chord.GroupStemUp ?? chord.SourceStemUp ?? StemUp(chord.Role, chord.Notes.Select(n => n.Position).ToList());
                 built[chord] = BuildChord(partIndex, staff, chord.First.Voice, Start(chord.First), Duration(chord.First), chord.Value, stemUp, chord.Role,
                     chord.Notes, chord.First.OctaveShift, chord.Beams, chord.Lyrics, chord.ExtendEnds);
                 result.Add(built[chord]);
@@ -321,7 +326,8 @@ internal static class NotePreparation
     private static int EvenUp(int value) => value % 2 == 0 ? value : value + 1;
 
     /// <summary>
-    /// One voice keeps one stem direction; otherwise the note furthest from the middle line decides (stems go down from it).
+    /// Without a direction from the source: one voice keeps one stem direction; otherwise the note furthest from the
+    /// middle line decides (stems go down from it).
     /// </summary>
     private static bool StemUp(int role, IReadOnlyCollection<int> positions) =>
         role != 0 ? role > 0 : (4 - positions.Min()) > (positions.Max() - 4);
@@ -372,9 +378,14 @@ internal static class NotePreparation
             return true;
         });
 
+        // The source's direction when its chords agree on one; stems both ways (a beam between the staves) are not drawn
+        // yet, so such a group, like one without directions, follows ScoreStudio's rule.
         foreach (var group in groups)
         {
-            var stemUp = StemUp(group[0].Role, group.SelectMany(c => c.Notes.Select(n => n.Position)).ToList());
+            var source = group.Select(c => c.SourceStemUp).Where(s => s is not null).Distinct().ToList();
+            var stemUp = source.Count == 1
+                ? source[0]!.Value
+                : StemUp(group[0].Role, group.SelectMany(c => c.Notes.Select(n => n.Position)).ToList());
             foreach (var chord in group) chord.GroupStemUp = stemUp;
         }
 

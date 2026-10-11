@@ -250,7 +250,7 @@ public sealed class ProjectFileServiceTests : IDisposable
     {
         var project = ScoreProject.CreateNew();
         project.Engraving = new ScoreEngraving { StaffSpace = 1.98, MarginLeft = 20, MarginRight = 21, MarginTop = 22, MarginBottom = 23, SystemDistance = 7.2, TopSystemDistance = 3.3, StaffDistance = 8, LyricFontSize = 4, LyricFontFamily = "Times New Roman" };
-        project.Parts[0].Measures[0].Events.Add(new ScoreEvent { Lyrics = { new ScoreLyric { Text = "가", Y = -9.2 } }, ExtendEnds = { 2 } });
+        project.Parts[0].Measures[0].Events.Add(new ScoreEvent { Lyrics = { new ScoreLyric { Text = "가", Y = -9.2 } }, ExtendEnds = { 2 }, StemUp = false });
         project.Parts[0].Measures[0].ChordSymbols.Add(new ScoreChordSymbol { RootStep = "F", Text = "F", Y = 2.6 });
         var measure = project.Parts[0].Measures[1];
         (measure.SystemDistance, measure.TopSystemDistance) = (17.4, 31.3);
@@ -268,6 +268,7 @@ public sealed class ProjectFileServiceTests : IDisposable
         Assert.Equal(4, e.LyricFontSize);
         Assert.Equal("Times New Roman", e.LyricFontFamily);
         Assert.Equal(-9.2, loaded.Parts[0].Measures[0].Events[0].Lyrics.Single().Y);
+        Assert.False(loaded.Parts[0].Measures[0].Events[0].StemUp);
         Assert.Equal(new[] { 2 }, loaded.Parts[0].Measures[0].Events[0].ExtendEnds);
         Assert.Equal(2.6, loaded.Parts[0].Measures[0].ChordSymbols.Single().Y);
     }

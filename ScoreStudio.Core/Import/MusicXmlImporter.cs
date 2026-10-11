@@ -834,6 +834,7 @@ public static class MusicXmlImporter
             item.Lyrics = ReadLyrics(note, item.ExtendEnds);
             item.TieToNext = item.Kind == "Note" && ReadTie(note);
             item.Beams = ReadBeams(note);
+            item.StemUp = (string?)note.Element("stem") switch { "up" => true, "down" => false, _ => null };
             ReadNotations(note);
             measure.Events.Add(item);
         }

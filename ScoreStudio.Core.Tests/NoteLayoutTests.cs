@@ -850,6 +850,41 @@ public sealed class NoteLayoutTests
         Assert.True(TextMetrics.Width("macht", 1) > TextMetrics.Width("macht", 1, serif: true));
     }
 
+    [Fact]
+    public void StemDirections_FollowTheSource_UnlessABeamGroupDisagrees()
+    {
+        // Measure 1: B4 on the middle line (ScoreStudio's rule: down) with the source's stem up, then a beam group that
+        // ScoreStudio would stem down, written up. Measure 2: a group whose stems the source writes both ways (a beam
+        // between the staves, not drawn yet) follows ScoreStudio's rule.
+        static string Note(string step, int octave, string type, int duration, string? stem, string? beam) =>
+            $"<note><pitch><step>{step}</step><octave>{octave}</octave></pitch><duration>{duration}</duration><type>{type}</type>"
+            + (stem is null ? "" : $"<stem>{stem}</stem>") + (beam is null ? "" : $"<beam number=\"1\">{beam}</beam>") + "</note>";
+        var xml = $"""
+            <score-partwise version="4.0">
+              <part-list><score-part id="P1"><part-name>P</part-name></score-part></part-list>
+              <part id="P1">
+                <measure number="1"><attributes><divisions>2</divisions><time><beats>4</beats><beat-type>4</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>
+                  {Note("B", 4, "half", 4, "up", null)}
+                  {Note("D", 5, "eighth", 1, "up", "begin")}{Note("E", 5, "eighth", 1, "up", "continue")}
+                  {Note("F", 5, "eighth", 1, "up", "continue")}{Note("G", 5, "eighth", 1, "up", "end")}
+                </measure>
+                <measure number="2">
+                  {Note("D", 5, "eighth", 1, "up", "begin")}{Note("E", 5, "eighth", 1, "down", "continue")}
+                  {Note("F", 5, "eighth", 1, "down", "continue")}{Note("G", 5, "eighth", 1, "down", "end")}
+                  {Note("B", 4, "half", 4, null, null)}
+                </measure>
+              </part>
+            </score-partwise>
+            """;
+        var project = MusicXmlImporter.ImportXml(xml, "stems").Project;
+        Assert.Equal(new bool?[] { true, true, true, true, true }, project.Parts[0].Measures[0].Events.Select(e => e.StemUp));
+
+        var page = ScoreLayoutEngine.Layout(project).Pages.Single();
+        var boxes = page.Systems.Single().Measures.Select(m => new MeasureBox(m.Left, m.Right, 0, page.Height)).ToList();
+        Assert.Equal(new[] { true, true, true, true, true }, Stems(page, boxes[0]).Select(s => Ends(s).Up));
+        Assert.Equal(new[] { false, false, false, false, false }, Stems(page, boxes[1]).Select(s => Ends(s).Up));
+    }
+
     /// <summary>The staff space a score is laid out with: the source's, or the default.</summary>
     private static double SpaceOf(ScoreProject project) => project.Engraving?.StaffSpace ?? Sp;
 
@@ -890,6 +925,11 @@ public sealed class NoteLayoutTests
                 if (onStem.Count == 0) continue;
 
                 var outer = up ? onStem.Min(b => TopEdgeAt(b, stem.X1)) : onStem.Max(b => TopEdgeAt(b, stem.X1) + b.Thickness);
+
+                // Two voices with stems the same way at one beat: the unbeamed voice's stem may run through the other
+                // voice's beam, as long as the beamed stem there ends on it.
+                if (Math.Abs(outer - tip) > 1e-6 && stems.Any(s => s != stem && Math.Abs(s.X1 - stem.X1) < 1e-6 && Math.Abs(Ends(s).Tip - outer) < 1e-6))
+                    continue;
                 Assert.True(Math.Abs(outer - tip) < 1e-6, $"{name} p{page.Number}: stem at ({stem.X1:F1}, {tip:F1}) mm misses its beam at {outer:F1}");
                 Assert.DoesNotContain(flags, f => Math.Abs(f.X - (stem.X1 - stem.Thickness / 2)) < 1e-6 && Math.Abs(f.Y - tip) < 2 * sp);
             }
