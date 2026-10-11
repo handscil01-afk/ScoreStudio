@@ -133,7 +133,7 @@ public static class ProjectFileService
         // chord symbols, all lyric verses, ties; version 4: clef changes, hidden staves, breaks, octave lines;
         // version 5: beams, so older files show flags until the score is imported again; version 6: hidden part names
         // and part groups; version 7: source page layout; version 8: lyric positions and lyric font size; version 9:
-        // chord symbol positions).
+        // chord symbol positions; version 10: where extender lines end).
         // Validate and the model defaults fill them in, and a version 1–3 "Lyric" becomes verse 1.
         // Saving always writes the current version.
     }
@@ -261,6 +261,10 @@ public static class ProjectFileService
                     item.Beams ??= new List<BeamType>();
                     if (item.Beams.Count > MaxBeamLevels || item.Beams.Any(b => !Enum.IsDefined(b)))
                         throw Corrupt($"{where}의 {e + 1}번째 음표의 빔 정보가 올바르지 않습니다.");
+
+                    item.ExtendEnds ??= new List<int>();
+                    if (item.ExtendEnds.Any(v => v < 1))
+                        throw Corrupt($"{where}의 {e + 1}번째 음표의 가사 정보가 올바르지 않습니다.");
 
                     item.Lyrics ??= new List<ScoreLyric>();
                     if (!string.IsNullOrEmpty(item.LegacyLyric) && item.Lyrics.All(l => l?.Verse != 1))

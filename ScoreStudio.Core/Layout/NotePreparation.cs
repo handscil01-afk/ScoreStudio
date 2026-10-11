@@ -43,6 +43,9 @@ internal sealed class PreparedChord
     /// <summary>Lyrics sung on this chord, one per verse.</summary>
     public IReadOnlyList<ScoreLyric> Lyrics { get; init; } = Array.Empty<ScoreLyric>();
 
+    /// <summary>Verses whose extender line ends at this chord.</summary>
+    public IReadOnlyList<int> ExtendEnds { get; init; } = Array.Empty<int>();
+
     /// <summary>Room needed left of the onset for accidentals and left-displaced heads, in staff spaces.</summary>
     public double LeftExtent { get; init; }
 
@@ -148,6 +151,7 @@ internal static class NotePreparation
         public required int Role { get; init; }
         public required List<(int Position, int? Accidental, int Midi, bool Tie)> Notes { get; init; }
         public required IReadOnlyList<ScoreLyric> Lyrics { get; init; }
+        public required IReadOnlyList<int> ExtendEnds { get; init; }
         public required IReadOnlyList<BeamType> Beams { get; set; }
         public bool? GroupStemUp { get; set; }
     }
@@ -223,6 +227,7 @@ internal static class NotePreparation
                     First = first, Value = value, Role = role, Notes = notes,
                     Beams = chordEvents.Select(e => e.Beams).FirstOrDefault(b => b is { Count: > 0 }) ?? new List<BeamType>(),
                     Lyrics = chordEvents.Select(e => e.Lyrics).FirstOrDefault(l => l is { Count: > 0 }) ?? new List<ScoreLyric>(),
+                    ExtendEnds = chordEvents.SelectMany(e => e.ExtendEnds).Distinct().ToList(),
                 });
             }
 
@@ -232,7 +237,7 @@ internal static class NotePreparation
             {
                 var stemUp = chord.GroupStemUp ?? StemUp(chord.Role, chord.Notes.Select(n => n.Position).ToList());
                 built[chord] = BuildChord(partIndex, staff, chord.First.Voice, Start(chord.First), chord.Value, stemUp, chord.Role,
-                    chord.Notes, chord.First.OctaveShift, chord.Beams, chord.Lyrics);
+                    chord.Notes, chord.First.OctaveShift, chord.Beams, chord.Lyrics, chord.ExtendEnds);
                 result.Add(built[chord]);
             }
 
@@ -312,7 +317,7 @@ internal static class NotePreparation
     private static PreparedChord BuildChord(
         int partIndex, int staff, int voice, Rational start, NoteValue value, bool stemUp, int role,
         List<(int Position, int? Accidental, int Midi, bool Tie)> notes, int octaveShift, IReadOnlyList<BeamType> beams,
-        IReadOnlyList<ScoreLyric> lyrics)
+        IReadOnlyList<ScoreLyric> lyrics, IReadOnlyList<int> extendEnds)
     {
         var sorted = notes.OrderBy(n => n.Position).ToList();
         var sides = new int[sorted.Count];
@@ -352,7 +357,7 @@ internal static class NotePreparation
         return new PreparedChord
         {
             PartIndex = partIndex, Staff = staff, Voice = voice, Start = start, Value = value, IsRest = false,
-            StemUp = stemUp, VoiceRole = role, OctaveShift = octaveShift, Beams = beams, Lyrics = lyrics,
+            StemUp = stemUp, VoiceRole = role, OctaveShift = octaveShift, Beams = beams, Lyrics = lyrics, ExtendEnds = extendEnds,
             Notes = sorted.Select((n, i) => new PreparedNote(n.Position, n.Accidental, sides[i], columns[i], n.Midi, n.Tie)).ToList(),
             LeftExtent = displacedLeft + accidentalRoom,
             RightExtent = headWidth + displacedRight + Math.Max(DotsWidth(value), flagRoom),

@@ -9,7 +9,7 @@ namespace ScoreStudio.Models;
 public sealed class ScoreProject
 {
     /// <summary>The project file schema version this build reads and writes.</summary>
-    public const int CurrentSchemaVersion = 10;
+    public const int CurrentSchemaVersion = 11;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string Title { get; set; } = "새 악보";
@@ -248,6 +248,9 @@ public sealed class ScoreEvent
 
     /// <summary>Lyrics under this note, one entry per verse.</summary>
     public List<ScoreLyric> Lyrics { get; set; } = new();
+
+    /// <summary>Verses whose extender line (from an earlier held syllable) ends at this note.</summary>
+    public List<int> ExtendEnds { get; set; } = new();
 
     /// <summary>
     /// Versions 1–3 stored a single lyric here. Loading moves it into <see cref="Lyrics"/>; it is never written.

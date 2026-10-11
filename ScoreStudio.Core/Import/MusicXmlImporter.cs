@@ -826,7 +826,7 @@ public static class MusicXmlImporter
                 return;
             }
 
-            item.Lyrics = ReadLyrics(note);
+            item.Lyrics = ReadLyrics(note, item.ExtendEnds);
             item.TieToNext = item.Kind == "Note" && ReadTie(note);
             item.Beams = ReadBeams(note);
             ReadNotations(note);
@@ -885,7 +885,8 @@ public static class MusicXmlImporter
         /// <summary>Lyrics marked placement="above" without a position sit 2.5 spaces above the staff.</summary>
         private const double AboveStaffLyricY = 2.5;
 
-        private List<ScoreLyric> ReadLyrics(XElement note)
+        /// <param name="extendEnds">Receives the verses whose extender line ends at this note (a lyric with only &lt;extend type="stop"&gt;).</param>
+        private List<ScoreLyric> ReadLyrics(XElement note, List<int> extendEnds)
         {
             var lyrics = new List<ScoreLyric>();
             var index = 0;
@@ -899,7 +900,12 @@ public static class MusicXmlImporter
                 // Several <text> elements mean an elision: two syllables sung on one note, joined with an undertie.
                 var text = string.Join("‿", element.Elements("text").Select(t => t.Value.Trim()).Where(t => t.Length > 0));
                 if (text.Length == 0)
-                    continue; // e.g. only the end of an extender line
+                {
+                    // Only the end of an extender line.
+                    if ((string?)element.Element("extend")?.Attribute("type") == "stop" && !extendEnds.Contains(verse))
+                        extendEnds.Add(verse);
+                    continue;
+                }
 
                 if (lyrics.Any(l => l.Verse == verse))
                 {

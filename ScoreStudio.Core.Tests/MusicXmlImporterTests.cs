@@ -312,6 +312,8 @@ public sealed class MusicXmlImporterTests : IDisposable
                   <lyric number="1" default-y="-92"><text>가</text></lyric>
                   <lyric number="2" placement="above"><text>나</text></lyric>
                   <lyric number="3"><text>다</text></lyric></note>
+                <note><pitch><step>D</step><octave>5</octave></pitch><duration>1</duration>
+                  <lyric number="2"><extend type="stop"/></lyric></note>
               </measure></part>
             </score-partwise>
             """;
@@ -320,6 +322,7 @@ public sealed class MusicXmlImporterTests : IDisposable
 
         var lyrics = project.Parts[0].Measures[0].Events[0].Lyrics;
         Assert.Equal(new double?[] { -9.2, 2.5, null }, lyrics.Select(l => l.Y));
+        Assert.Equal(new[] { 2 }, project.Parts[0].Measures[0].Events[1].ExtendEnds);
         Assert.Equal(11.3 * 25.4 / 72, project.Engraving!.LyricFontSize!.Value, 9);
     }
 

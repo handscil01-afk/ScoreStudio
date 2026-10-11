@@ -1,3 +1,4 @@
+using ScoreStudio.Import;
 using ScoreStudio.Models;
 
 namespace ScoreStudio.Layout;
@@ -22,7 +23,8 @@ public static partial class ScoreLayoutEngine
     /// under held notes. A verse line sits where the source puts most of its syllables in this system; without source
     /// positions it goes under the staff, clear of the lowest note or stem.
     /// </summary>
-    private static void DrawLyrics(List<DrawItem> items, List<PlacedChord> placed, double[] staffTops, double systemRight, double size, double sp)
+    private static void DrawLyrics(
+        List<DrawItem> items, List<PlacedChord> placed, List<PlacedRest> rests, double[] staffTops, double systemRight, double size, double sp)
     {
         foreach (var staff in placed.Where(p => p.Chord.Lyrics.Count > 0).GroupBy(p => p.Slot))
         {
@@ -67,12 +69,22 @@ public static partial class ScoreLayoutEngine
 
                     if (lyric.Extend)
                     {
-                        // Under every later note of the same voice up to the next syllable (or the end of the system).
-                        var held = placed.Where(p => p.Slot == staff.Key && p.Chord.Voice == chord.Chord.Voice && IsAfter(p, chord)
-                                && (!hasNext || IsAfter(syllables[i + 1].Placed, p)))
-                            .ToList();
-                        if (held.Count == 0) continue;
-                        var last = held.MaxBy(p => (p.Measure, p.Chord.Start))!;
+                        // Under the later notes of the same voice up to the note the source ends the line on; without
+                        // that, up to the next syllable or the next rest (or the end of the system).
+                        var restAfter = rests.Where(r => r.Slot == staff.Key && r.Voice == chord.Chord.Voice
+                                && (r.Measure > chord.Measure || (r.Measure == chord.Measure && r.Start > chord.Chord.Start)))
+                            .Select(r => (r.Measure, r.Start)).DefaultIfEmpty((int.MaxValue, Rational.Zero)).Min();
+                        PlacedChord? last = null;
+                        foreach (var p in placed.Where(p => p.Slot == staff.Key && p.Chord.Voice == chord.Chord.Voice && IsAfter(p, chord))
+                                     .OrderBy(p => p.Measure).ThenBy(p => p.Chord.Start))
+                        {
+                            if (hasNext && !IsAfter(syllables[i + 1].Placed, p)) break;
+                            if ((p.Measure, p.Chord.Start).CompareTo(restAfter) > 0) break;
+                            last = p;
+                            if (p.Chord.ExtendEnds.Contains(verse.Key)) break;
+                        }
+
+                        if (last is null) continue;
                         var end = last.X + Smufl.NoteheadWidth(last.Chord.Value.Type) * sp;
                         if (end > right + 0.3 * size)
                             items.Add(new LineItem(right + 0.15 * size, baseline, end, baseline, 0.06 * size));
@@ -81,6 +93,9 @@ public static partial class ScoreLayoutEngine
             }
         }
     }
+
+    /// <summary>A rest's place in time, so extender lines stop before it.</summary>
+    private sealed record PlacedRest(int Slot, int Measure, Rational Start, int Voice);
 
     /// <summary>Whether <paramref name="a"/> comes after <paramref name="b"/> in time.</summary>
     private static bool IsAfter(PlacedChord a, PlacedChord b) =>

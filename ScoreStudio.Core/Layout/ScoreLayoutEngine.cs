@@ -512,6 +512,7 @@ public static partial class ScoreLayoutEngine
         var measureLayouts = new List<MeasureLayout>();
         var placed = new List<PlacedChord>();
         var symbols = new List<PlacedSymbol>();
+        var rests = new List<PlacedRest>();
         var x = left + plan.HeaderWidth;
         for (var k = 0; k < plan.MeasureCount; k++)
         {
@@ -546,7 +547,7 @@ public static partial class ScoreLayoutEngine
                     DrawTimeSignature(items, info, prefixX, staffTops, sp);
             }
 
-            DrawMeasureNotes(items, prepared[index], slots, staffTops, measureLeft + planned.Prefix, measureRight, planned, sp, placed, index, symbols);
+            DrawMeasureNotes(items, prepared[index], slots, staffTops, measureLeft + planned.Prefix, measureRight, planned, sp, placed, index, symbols, rests);
 
             var isFinal = isLastSystem && k == plan.MeasureCount - 1;
             DrawBarline(items, project, slots, top, measureRight, isFinal, sp);
@@ -556,7 +557,7 @@ public static partial class ScoreLayoutEngine
 
         DrawOctaveLines(items, placed, staffTops, sp);
         DrawTies(items, placed, slots, staffTops, left + plan.HeaderWidth, right, pendingTies, sp);
-        DrawLyrics(items, placed, staffTops, right, lyricSize, sp);
+        DrawLyrics(items, placed, rests, staffTops, right, lyricSize, sp);
         DrawChordSymbols(items, symbols, placed, staffTops, lyricSize, sp);
 
         return new SystemLayout
@@ -592,7 +593,7 @@ public static partial class ScoreLayoutEngine
     private static void DrawMeasureNotes(
         List<DrawItem> items, PreparedMeasure measure, List<StaffSlot> slots, double[] staffTops,
         double contentLeft, double measureRight, PlannedMeasure plan, double sp, List<PlacedChord> placed, int measureIndex,
-        List<PlacedSymbol> symbols)
+        List<PlacedSymbol> symbols, List<PlacedRest> rests)
     {
         if (measure.IsEmpty)
         {
@@ -643,6 +644,7 @@ public static partial class ScoreLayoutEngine
                     ? (contentLeft + measureRight - Smufl.RestWidth(NoteType.Whole) * sp) / 2
                     : onsetX[chord.Start];
                 DrawRest(items, chord, restX, staffTop, sp);
+                rests.Add(new PlacedRest(slotIndex, measureIndex, chord.Start, chord.Voice));
             }
             else
             {

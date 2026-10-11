@@ -408,6 +408,23 @@ public sealed class NoteLayoutTests
     }
 
     [Fact]
+    public void Extenders_EndWhereTheSourceEndsThem()
+    {
+        // Hymn sample, verse 2: "삶" is held over the tie into measure 2, where the source ends its extender
+        // (<extend type="stop"/> on the tied note), although no later verse-2 syllable follows.
+        var layout = ScoreLayoutEngine.Layout(MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", "hymn-repeats-chords.musicxml")).Project);
+        var page = layout.Pages[0];
+        var size = 2.2 * Sp;
+        var life = page.Items.OfType<TextItem>().Single(t => t.Text == "삶");
+        var extender = Assert.Single(page.Items.OfType<LineItem>(), l => l.Y1 == l.Y2 && Math.Abs(l.Y1 - life.Y) < 1e-9);
+        var measure2 = page.Systems[0].Measures[1];
+        var tiedTo = Glyphs(layout, Noteheads).First(h => h.X > measure2.Left);
+
+        Assert.Equal(tiedTo.X + Smufl.NoteheadWidth(NoteType.Quarter) * Sp, extender.X2, 9);
+        Assert.True(extender.X1 > life.X + TextMetrics.Width("삶", size) / 2);
+    }
+
+    [Fact]
     public void Ties_CurveAwayFromStems_SplitInChords_AndContinueIntoTheNextSystem()
     {
         var (layout, _) = LyricsAndTies();

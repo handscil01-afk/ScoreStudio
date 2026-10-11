@@ -21,6 +21,7 @@
 | `part-name print-object="no"`, `part-group` (`group-symbol`, `group-barline`) | 이름 표시 여부, 파트 묶음(괄호 종류, 마디선 연결) — 스키마 7 |
 | `defaults` (`scaling`, `page-layout`, `system-layout`, `staff-layout`), `print`의 `system-layout`·`staff-layout` | 보표 크기, 용지(A4·Letter), 여백, 기본·줄별 줄 간격과 보표 간격 — 스키마 8 |
 | `lyric`의 `default-y`·`placement`, `defaults/lyric-font` | 가사 줄 높이, 가사 글꼴 크기 — 스키마 9 |
+| 글자 없는 `lyric`의 `extend type="stop"` | 연장선이 끝나는 음표(절 번호) — 스키마 11 |
 | `harmony`의 `default-y`, `degree print-object="no"` | 코드 이름 높이 — 스키마 10. 표시하지 않는 구성음은 이름에 붙이지 않는다(예: Finale의 "C2/E"). |
 | `measure number` | 마디 번호 (숫자가 아니면 순서 번호를 쓰고 경고) |
 | `attributes`: `divisions`, `time`, `key/fifths`, `staves`, `clef` | 길이 단위, 박자표, 조표(5도권 수), 보표 수, 음자리표 |
