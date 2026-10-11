@@ -6,7 +6,7 @@ namespace ScoreStudio.KeyInput;
 
 /// <summary>
 /// Turns key presses into editor commands (see docs/SPRINT4_EDITING.md). Durations use Finale's Speedy Entry numbers:
-/// 7 whole, 6 half, 5 quarter, 4 eighth, 3 16th, 2 32nd.
+/// 7 whole, 6 half, 5 quarter, 4 eighth, 3 16th, 2 32nd; Ctrl with a number starts a tuplet of that many notes.
 /// </summary>
 public static class EditorKeys
 {
@@ -19,6 +19,7 @@ public static class EditorKeys
 
         if (control)
         {
+            if (TupletCount(key) is { } count) return editor.StartTuplet(count);
             return key switch
             {
                 Key.Z when shift => editor.Redo(),
@@ -49,7 +50,7 @@ public static class EditorKeys
             Key.Left => editor.SelectPrevious(),
             Key.Right => editor.SelectNext(),
             Key.Delete or Key.Back => editor.DeleteSelection(),
-            Key.Escape => ClearSelection(editor),
+            Key.Escape => editor.PendingTuplet is { } pending ? CancelTuplet(editor, pending) : ClearSelection(editor),
             _ => null,
         };
     }
@@ -64,6 +65,25 @@ public static class EditorKeys
         Key.D2 or Key.NumPad2 => NoteType.ThirtySecond,
         _ => null,
     };
+
+    /// <summary>Ctrl+2 … Ctrl+7 and Ctrl+9: a tuplet of that many notes (Ctrl+3 a triplet). Ctrl+0 stays the window's zoom.</summary>
+    private static int? TupletCount(Key key) => key switch
+    {
+        Key.D2 or Key.NumPad2 => 2,
+        Key.D3 or Key.NumPad3 => 3,
+        Key.D4 or Key.NumPad4 => 4,
+        Key.D5 or Key.NumPad5 => 5,
+        Key.D6 or Key.NumPad6 => 6,
+        Key.D7 or Key.NumPad7 => 7,
+        Key.D9 or Key.NumPad9 => 9,
+        _ => null,
+    };
+
+    private static EditResult CancelTuplet(ScoreEditor editor, int pending)
+    {
+        editor.CancelTuplet();
+        return EditResult.Ok($"{ScoreEditor.TupletName(pending)} 입력을 취소했습니다.");
+    }
 
     private static EditResult ClearSelection(ScoreEditor editor)
     {

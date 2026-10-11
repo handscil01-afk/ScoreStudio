@@ -88,6 +88,8 @@ public sealed partial class ScoreEditor
             return "새 박자보다 뒤에 코드 이름이 있습니다.";
         if (measure.ClefChanges.Any(c => new Rational(c.PositionNumerator, c.PositionDenominator) >= length))
             return "새 박자보다 뒤에 음자리표 변경이 있습니다.";
+        if (measure.Tuplets.Any(t => SpanEnd(t) > length && measure.Events.Any(e => e.Kind == "Note" && e.Staff == t.Staff && e.Voice == t.Voice)))
+            return "새 박자보다 뒤에 잇단음표가 있습니다. 그 음표를 먼저 쉼표로 바꾸세요.";
 
         foreach (var (staff, voice) in measure.Events.Select(e => (e.Staff, e.Voice)).Distinct().ToList())
         {
@@ -99,6 +101,7 @@ public sealed partial class ScoreEditor
                 // Rests only: one whole-measure rest, as Finale shows an empty measure.
                 if (events.Count != 1 || Start(events[0]).Sign != 0 || Duration(events[0]) != length)
                 {
+                    measure.Tuplets.RemoveAll(t => t.Staff == staff && t.Voice == voice);
                     foreach (var e in events) measure.Events.Remove(e);
                     measure.Events.Add(NewRest(new EditPosition(0, staff, voice, 0, Rational.Zero), Rational.Zero, length));
                     changed = true;

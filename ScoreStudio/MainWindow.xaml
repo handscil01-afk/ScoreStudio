@@ -86,6 +86,8 @@
                 <Button Click="Rest_Click" Focusable="False" Padding="3,1" ToolTip="입력 위치에 쉼표 넣기 (0)">
                     <r:MusicGlyphIcon Glyph="&#xE4E5;" Baseline="0.5" Fallback="쉼표"/>
                 </Button>
+                <ToggleButton x:Name="TupletButton" Content="셋잇단 (Ctrl+3)" Click="Tuplet_Click" Focusable="False" Padding="6,4"
+                              ToolTip="다음에 넣는 음표부터 셋잇단음표로 넣습니다(입력 길이 2개 시간에 3개). 다른 잇단음표는 Ctrl+2~7, Ctrl+9. 다시 누르거나 Esc로 취소합니다."/>
                 <TextBlock x:Name="InputValueText" Text="4분음표" VerticalAlignment="Center" FontWeight="SemiBold" Margin="8,0"/>
                 <Separator/>
                 <ToggleButton x:Name="MouseEntryButton" Content="마우스 입력 (N)" Click="MouseEntry_Click" Focusable="False" Padding="8,4"
@@ -145,7 +147,7 @@
                     </ComboBox>
                     <TextBlock Text="개발 메모" FontWeight="SemiBold"/>
                     <TextBlock TextWrapping="Wrap" Foreground="#697586" Margin="0,4,0,0"
-                               Text="악보 화면은 오선, 음자리표, 조표, 박자표, 마디선, 음표, 쉼표, 빔(음표 잇기), 붙임줄, 잇단음표, 가사, 코드 이름, 도돌이표·볼타, 음자리표 변경, 옥타브 기호를 표시합니다. 키보드와 마우스(마우스 입력, N)로 음표·쉼표를 입력하고 고칠 수 있습니다(편집 > 키보드 입력 방법). 셈여림, 이음줄, 아티큘레이션, 글자 지시는 아직 가져오지도 표시하지도 않습니다. 편집 메뉴에서 조표·박자표·음자리표를 바꿀 수 있습니다. 잇단음표·가사 입력, MUSX 변환, PDF 출력은 아직 지원하지 않습니다."/>
+                               Text="악보 화면은 오선, 음자리표, 조표, 박자표, 마디선, 음표, 쉼표, 빔(음표 잇기), 붙임줄, 잇단음표, 가사, 코드 이름, 도돌이표·볼타, 음자리표 변경, 옥타브 기호를 표시합니다. 키보드와 마우스(마우스 입력, N)로 음표·쉼표를 입력하고 고칠 수 있습니다(편집 > 키보드 입력 방법). 셈여림, 이음줄, 아티큘레이션, 글자 지시는 아직 가져오지도 표시하지도 않습니다. 편집 메뉴에서 조표·박자표·음자리표를 바꿀 수 있고, Ctrl+3(셋잇단)처럼 잇단음표를 넣을 수 있습니다. 가사·코드 이름 입력, MUSX 변환, PDF 출력은 아직 지원하지 않습니다."/>
                 </StackPanel>
             </Border>
         </Grid>

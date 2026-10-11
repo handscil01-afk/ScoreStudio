@@ -28,6 +28,12 @@ public readonly record struct Rational : IComparable<Rational>
     public static Rational operator -(Rational a, Rational b) =>
         new(checked(a.Numerator * b.Denominator - b.Numerator * a.Denominator), checked(a.Denominator * b.Denominator));
 
+    public static Rational operator *(Rational a, Rational b) =>
+        new(checked(a.Numerator * b.Numerator), checked(a.Denominator * b.Denominator));
+
+    public static Rational operator /(Rational a, Rational b) =>
+        b.Numerator == 0 ? throw new DivideByZeroException() : new(checked(a.Numerator * b.Denominator), checked(a.Denominator * b.Numerator));
+
     public static bool operator <(Rational a, Rational b) => (a - b).Sign < 0;
     public static bool operator >(Rational a, Rational b) => (a - b).Sign > 0;
 

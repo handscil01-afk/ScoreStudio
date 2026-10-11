@@ -29,7 +29,7 @@ public sealed partial class ScoreEditor
 
     private readonly List<Snapshot> _undo = new();
     private readonly List<Snapshot> _redo = new();
-    private (List<ScoreEvent> Events, Rational Length)? _clipboard;
+    private (List<ScoreEvent> Events, List<ScoreTuplet> Tuplets, Rational Length)? _clipboard;
 
     public ScoreEditor(ScoreProject project)
     {
@@ -103,9 +103,25 @@ public sealed partial class ScoreEditor
         var at = where ?? Cursor;
         var length = InputLength;
         string? pitchName = null;
+        string? tupletName = null;
         return Change(() =>
         {
             var measure = MeasureAt(at);
+            if (PendingTuplet is not null || InnermostTuplet(measure, at.Staff, at.Voice, at.Position) is not null)
+            {
+                ScoreEvent? tupletNote = null;
+                if (step is { } ts)
+                {
+                    tupletNote = diatonic is { } td ? NoteAt(at, td / 7, ts, measure.KeyFifths) : MakeNote(at, ts, ReferenceDiatonic(at), measure.KeyFifths);
+                    if (tupletNote is null) return "입력할 수 있는 음높이 범위를 벗어났습니다.";
+                    pitchName = tupletNote.NotationSpelling;
+                }
+
+                var refusal = EnterInTuplet(at, tupletNote, length, out var name);
+                tupletName = name;
+                return refusal;
+            }
+
             var available = MeasureLength(measure) - at.Position;
             if (length > available && !TieAcrossBarlines)
                 return $"이 마디에 남은 길이({DescribeLength(available)})보다 긴 {DescribeValue(InputType, InputDots, step is null)}는 넣을 수 없습니다. "
@@ -171,9 +187,10 @@ public sealed partial class ScoreEditor
             Selection = at;
             SelectionIsEntry = true;
             return null;
-        }, () => step is null
+        }, () => (step is null
             ? $"{DescribeValue(InputType, InputDots, rest: true)}를 넣었습니다."
-            : $"{pitchName} {DescribeValue(InputType, InputDots, rest: false)}를 넣었습니다.");
+            : $"{pitchName} {DescribeValue(InputType, InputDots, rest: false)}를 넣었습니다.")
+            + (tupletName is null ? "" : $" ({tupletName})"));
     }
 
     /// <summary>
@@ -302,15 +319,23 @@ public sealed partial class ScoreEditor
         if (Selection is not { } at || SelectionIsEntry || ChordAt(at) is not { Count: > 0 })
             return EditResult.Ok($"입력 길이: {DescribeValue(type, dots, rest: false)}");
 
-        var length = Length(type, dots);
+        var written = Length(type, dots);
         var isRest = ChordAt(at)![0].Kind == "Rest";
         return Change(() =>
         {
             var measure = MeasureAt(at);
             var events = ChordAt(at)!;
             var old = Duration(events[0]);
+            var length = written / TupletRatioAt(measure, at.Staff, at.Voice, at.Position);
             if (length == old) return "이미 그 길이입니다.";
-            if (at.Position + length > MeasureLength(measure)) return "마디 끝을 넘어 늘릴 수 없습니다.";
+            if (InnermostTuplet(measure, at.Staff, at.Voice, at.Position) is { } around)
+            {
+                if (at.Position + length > SpanEnd(around)) return $"{TupletName(around.Actual)} 끝을 넘어 늘릴 수 없습니다.";
+            }
+            else if (at.Position + length > MeasureLength(measure))
+            {
+                return "마디 끝을 넘어 늘릴 수 없습니다.";
+            }
 
             if (length < old)
             {
@@ -347,6 +372,8 @@ public sealed partial class ScoreEditor
             UntieInto(at, events);
             foreach (var e in events) measure.Events.Remove(e);
             measure.Events.Add(NewRest(at, Start(events[0]), Duration(events[0])));
+            DissolveRestTuplets(measure, at.Staff, at.Voice);
+            if (ChordAt(at) is null) ClearSelection();
             AutoBeam(measure, at.Staff, at.Voice);
             return null;
         }, () => "음표를 쉼표로 바꿨습니다.");
@@ -463,7 +490,7 @@ public sealed partial class ScoreEditor
     {
         if (!CursorIsValid()) return EditResult.Refused("복사할 마디를 먼저 누르세요.");
         var measure = MeasureAt(Cursor);
-        _clipboard = (Clone(measure.Events), MeasureLength(measure));
+        _clipboard = (Clone(measure.Events), CloneTuplets(measure.Tuplets), MeasureLength(measure));
         return EditResult.Ok($"{Cursor.Measure + 1}마디를 복사했습니다.");
     }
 
@@ -481,6 +508,7 @@ public sealed partial class ScoreEditor
             if (clip.Events.Any(e => e.Staff >= part.Staves.Count)) return "보표 수가 다른 파트에는 붙여 넣을 수 없습니다.";
 
             measure.Events = Clone(clip.Events);
+            measure.Tuplets = CloneTuplets(clip.Tuplets);
             ClearSelection();
             return null;
         }, () => $"{index + 1}마디에 붙여 넣었습니다.");
@@ -630,12 +658,19 @@ public sealed partial class ScoreEditor
             Parts = { new ScorePart { Measures = { new ScoreMeasure { Events = events.ToList() } } } },
         })).Parts[0].Measures[0].Events;
 
+    private static List<ScoreTuplet> CloneTuplets(IEnumerable<ScoreTuplet> tuplets) =>
+        ProjectFileService.FromJson(ProjectFileService.ToJson(new ScoreProject
+        {
+            Parts = { new ScorePart { Measures = { new ScoreMeasure { Tuplets = tuplets.ToList() } } } },
+        })).Parts[0].Measures[0].Tuplets;
+
     private static ScoreEvent NewRest(EditPosition at, Rational start, Rational length) =>
         WithTime(new ScoreEvent { Kind = "Rest", Staff = at.Staff, Voice = at.Voice }, start, length);
 
+    /// <summary>Rests from <paramref name="from"/> to <paramref name="to"/> in one voice, written in the tuplets there.</summary>
     private static void AddRests(ScoreMeasure measure, EditPosition at, Rational from, Rational to)
     {
-        foreach (var piece in Pieces(to - from))
+        foreach (var piece in Pieces(measure, at.Staff, at.Voice, from, to - from))
         {
             measure.Events.Add(NewRest(at, from, piece));
             from += piece;
@@ -644,9 +679,26 @@ public sealed partial class ScoreEditor
 
     /// <summary>
     /// Frees the time from <paramref name="from"/> to <paramref name="to"/> in one voice: chords inside it go; a chord that
-    /// starts before keeps its part before (notes tied over the pieces); what lasts beyond becomes rests.
+    /// starts before keeps its part before (notes tied over the pieces); what lasts beyond becomes rests. A tuplet the
+    /// time only partly covers goes with all its notes, and the rest of its time becomes rests.
     /// </summary>
     private static void ClearSpan(ScoreMeasure measure, int staff, int voice, Rational from, Rational to)
+    {
+        var (clearFrom, clearTo) = (from, to);
+        while (measure.Tuplets.FirstOrDefault(t => t.Staff == staff && t.Voice == voice && SpanStart(t) < clearTo && SpanEnd(t) > clearFrom
+                   && !(SpanStart(t) <= from && to <= SpanEnd(t))) is { } cut)
+        {
+            measure.Tuplets.Remove(cut);
+            (clearFrom, clearTo) = (Min(clearFrom, SpanStart(cut)), Rational.Max(clearTo, SpanEnd(cut)));
+        }
+
+        ClearTime(measure, staff, voice, clearFrom, clearTo);
+        var at = new EditPosition(0, staff, voice, 0, from);
+        if (clearFrom < from) AddRests(measure, at, clearFrom, from);
+        if (to < clearTo) AddRests(measure, at, to, clearTo);
+    }
+
+    private static void ClearTime(ScoreMeasure measure, int staff, int voice, Rational from, Rational to)
     {
         var at = new EditPosition(0, staff, voice, 0, from);
         foreach (var chord in VoiceChords(measure, staff, voice))
@@ -658,7 +710,7 @@ public sealed partial class ScoreEditor
             foreach (var e in chord) measure.Events.Remove(e);
             if (start < from)
             {
-                var pieces = Pieces(from - start);
+                var pieces = Pieces(measure, staff, voice, start, from - start);
                 var pieceStart = start;
                 for (var i = 0; i < pieces.Count; i++)
                 {
@@ -783,19 +835,23 @@ public sealed partial class ScoreEditor
         var chords = VoiceChords(measure, staff, voice);
         foreach (var e in chords.SelectMany(c => c)) e.Beams = new List<BeamType>();
 
+        // Groups are beats, except that the notes of a tuplet group by the tuplet (the innermost one).
         var group = new List<(List<ScoreEvent> Chord, int Levels)>();
         Rational groupEnd = default;
-        long groupBeat = -1;
+        (ScoreTuplet? Tuplet, long Beat) groupKey = (null, -1);
         foreach (var chord in chords)
         {
             var start = Start(chord[0]);
             var length = Duration(chord[0]);
-            var value = Notation.ValueOf(length);
+            var value = Notation.ValueOf(length, TupletRatioAt(measure, staff, voice, start));
+            var tuplet = InnermostTuplet(measure, staff, voice, start);
             var beat = (long)Math.Floor(start.ToDouble() / unit.ToDouble() + 1e-9);
             var lastBeat = (long)Math.Floor((start + length).ToDouble() / unit.ToDouble() - 1e-9);
-            var beamable = chord[0].Kind == "Note" && value.IsExact && !value.IsTuplet && value.Type >= NoteType.Eighth && beat == lastBeat;
+            var fits = tuplet is null ? beat == lastBeat : start + length <= SpanEnd(tuplet);
+            var key = tuplet is null ? ((ScoreTuplet?)null, beat) : (tuplet, -1L);
+            var beamable = chord[0].Kind == "Note" && value.IsExact && value.Type >= NoteType.Eighth && fits;
 
-            if (group.Count > 0 && (!beamable || beat != groupBeat || start != groupEnd))
+            if (group.Count > 0 && (!beamable || !ReferenceEquals(key.Item1, groupKey.Tuplet) || key.Item2 != groupKey.Beat || start != groupEnd))
             {
                 SetBeams(group);
                 group.Clear();
@@ -803,7 +859,7 @@ public sealed partial class ScoreEditor
 
             if (!beamable) continue;
             group.Add((chord, value.Type - NoteType.Eighth + 1));
-            groupBeat = beat;
+            groupKey = key;
             groupEnd = start + length;
         }
 

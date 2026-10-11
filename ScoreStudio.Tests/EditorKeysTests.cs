@@ -37,6 +37,22 @@ public sealed class EditorKeysTests
     }
 
     [Fact]
+    public void CtrlThree_StartsATriplet_AndEscapeCancelsAPendingOne()
+    {
+        var editor = new ScoreEditor(ScoreProject.CreateNew());
+        foreach (var (key, modifiers) in new[] { (Key.D4, ModifierKeys.None), (Key.D3, ModifierKeys.Control), (Key.C, ModifierKeys.None), (Key.D, ModifierKeys.None), (Key.E, ModifierKeys.None) })
+            Assert.True(EditorKeys.Handle(editor, key, modifiers)!.Done, key.ToString());
+        var tuplet = Assert.Single(editor.Project.Parts[0].Measures[0].Tuplets);
+        Assert.Equal((3, 2), (tuplet.Actual, tuplet.Normal));
+        Assert.All(editor.Project.Parts[0].Measures[0].Events, e => Assert.Equal((1, 3), (e.DurationNumerator, e.DurationDenominator)));
+
+        Assert.True(EditorKeys.Handle(editor, Key.D5, ModifierKeys.Control)!.Done);
+        Assert.Equal(5, editor.PendingTuplet);
+        Assert.True(EditorKeys.Handle(editor, Key.Escape, ModifierKeys.None)!.Done);
+        Assert.Null(editor.PendingTuplet);
+    }
+
+    [Fact]
     public void OtherKeys_AreLeftToTheWindow()
     {
         var editor = new ScoreEditor(ScoreProject.CreateNew());
