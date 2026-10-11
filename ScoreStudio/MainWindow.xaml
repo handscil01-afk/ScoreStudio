@@ -42,7 +42,7 @@
                 </ComboBox>
                 <Button Content="+" Click="ZoomIn_Click" Padding="10,4" ToolTip="확대 (Ctrl+=)"/>
                 <Separator/>
-                <TextBlock Text="음표 입력은 아직 지원하지 않습니다. 코드 이름·도돌이표는 아직 표시하지 않습니다." VerticalAlignment="Center" Margin="8,0" Foreground="#805A20"/>
+                <TextBlock Text="음표 입력은 아직 지원하지 않습니다. 도돌이표·볼타와 셈여림은 아직 표시하지 않습니다." VerticalAlignment="Center" Margin="8,0" Foreground="#805A20"/>
             </ToolBar>
         </ToolBarTray>
 
@@ -96,7 +96,7 @@
                     </ComboBox>
                     <TextBlock Text="개발 메모" FontWeight="SemiBold"/>
                     <TextBlock TextWrapping="Wrap" Foreground="#697586" Margin="0,4,0,0"
-                               Text="악보 화면은 오선, 음자리표, 조표, 박자표, 마디선, 음표, 쉼표, 빔(음표 잇기), 붙임줄, 가사, 음자리표 변경, 옥타브 기호를 표시합니다. 코드 이름, 도돌이표·볼타는 저장되지만 아직 화면에 표시하지 않습니다. 음표 입력, MUSX 변환, PDF 출력은 아직 지원하지 않습니다."/>
+                               Text="악보 화면은 오선, 음자리표, 조표, 박자표, 마디선, 음표, 쉼표, 빔(음표 잇기), 붙임줄, 가사, 코드 이름, 음자리표 변경, 옥타브 기호를 표시합니다. 도돌이표·볼타는 저장되지만 아직 화면에 표시하지 않습니다. 음표 입력, MUSX 변환, PDF 출력은 아직 지원하지 않습니다."/>
                 </StackPanel>
             </Border>
         </Grid>

@@ -9,7 +9,7 @@ namespace ScoreStudio.Models;
 public sealed class ScoreProject
 {
     /// <summary>The project file schema version this build reads and writes.</summary>
-    public const int CurrentSchemaVersion = 9;
+    public const int CurrentSchemaVersion = 10;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string Title { get; set; } = "새 악보";
@@ -224,6 +224,12 @@ public sealed class ScoreChordSymbol
 
     /// <summary>The symbol as printed, e.g. "Bbmaj7/D".</summary>
     public string Text { get; set; } = "C";
+
+    /// <summary>
+    /// Height of the symbol's baseline from the source, in staff spaces above the staff's top line; null lets
+    /// ScoreStudio place it above the staff.
+    /// </summary>
+    public double? Y { get; set; }
 }
 
 /// <summary>

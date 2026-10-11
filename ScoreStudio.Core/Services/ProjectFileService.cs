@@ -132,7 +132,8 @@ public static class ProjectFileService
         // Older files lack newer fields (version 1: staves; version 2: key, staff, voice; version 3: repeats, voltas,
         // chord symbols, all lyric verses, ties; version 4: clef changes, hidden staves, breaks, octave lines;
         // version 5: beams, so older files show flags until the score is imported again; version 6: hidden part names
-        // and part groups; version 7: source page layout; version 8: lyric positions and lyric font size).
+        // and part groups; version 7: source page layout; version 8: lyric positions and lyric font size; version 9:
+        // chord symbol positions).
         // Validate and the model defaults fill them in, and a version 1–3 "Lyric" becomes verse 1.
         // Saving always writes the current version.
     }
@@ -213,7 +214,8 @@ public static class ProjectFileService
                     if (!IsStep(chord.RootStep) || chord.RootAlter is < -2 or > 2
                         || (chord.BassStep is not null && !IsStep(chord.BassStep)) || chord.BassAlter is < -2 or > 2
                         || chord.PositionNumerator < 0 || chord.PositionDenominator <= 0
-                        || chord.Staff < 0 || chord.Staff >= part.Staves.Count)
+                        || chord.Staff < 0 || chord.Staff >= part.Staves.Count
+                        || (chord.Y is { } chordY && !InRange(chordY, -MaxDistance, MaxDistance)))
                         throw Corrupt($"{where}의 {c + 1}번째 코드 이름이 올바르지 않습니다.");
                     chord.Kind ??= "major";
                     chord.Text ??= chord.RootStep;

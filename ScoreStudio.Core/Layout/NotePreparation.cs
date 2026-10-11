@@ -63,6 +63,12 @@ internal sealed class PreparedMeasure
 
     public IReadOnlyList<PreparedBeam> Beams { get; init; } = Array.Empty<PreparedBeam>();
 
+    /// <summary>Chord symbols of every part in this measure.</summary>
+    public IReadOnlyList<(int PartIndex, ScoreChordSymbol Symbol)> ChordSymbols { get; init; } = Array.Empty<(int, ScoreChordSymbol)>();
+
+    /// <summary>Length of the measure in quarter notes (the longest part, at least the time signature).</summary>
+    public Rational Length { get; init; }
+
     public IReadOnlyList<MidMeasureClef> MidMeasureClefs { get; init; } = Array.Empty<MidMeasureClef>();
     public required List<Rational> Onsets { get; init; }
 
@@ -100,6 +106,7 @@ internal static class NotePreparation
         var tiedFromPrevious = new HashSet<(int Part, int Staff, int Voice, int Midi)>();
         var chordsByMeasure = Enumerable.Range(0, measureCount).Select(_ => new List<PreparedChord>()).ToArray();
         var beamsByMeasure = Enumerable.Range(0, measureCount).Select(_ => new List<PreparedBeam>()).ToArray();
+        var symbolsByMeasure = Enumerable.Range(0, measureCount).Select(_ => new List<(int, ScoreChordSymbol)>()).ToArray();
         var midClefs = Enumerable.Range(0, measureCount).Select(_ => new List<MidMeasureClef>()).ToArray();
         var lengths = new Rational[measureCount];
 
@@ -115,13 +122,18 @@ internal static class NotePreparation
                     lengths[m] = Rational.Max(lengths[m], Start(e) + Duration(e));
 
                 PrepareMeasurePart(part, p, m, measure, nominal, tiedFromPrevious, clefs, chordsByMeasure[m], beamsByMeasure[m]);
+                symbolsByMeasure[m].AddRange(measure.ChordSymbols.Select(c => (p, c)));
                 foreach (var change in measure.ClefChanges.Where(c => c.PositionNumerator > 0))
                     midClefs[m].Add(new MidMeasureClef(p, change.Staff, new Rational(change.PositionNumerator, change.PositionDenominator), change.Clef));
             }
         }
 
         for (var m = 0; m < measureCount; m++)
-            measures[m] = Space(chordsByMeasure[m], beamsByMeasure[m], midClefs[m], lengths[m] == default ? new Rational(4, 1) : lengths[m], lyricSize);
+        {
+            measures[m] = Space(chordsByMeasure[m], beamsByMeasure[m], midClefs[m], lengths[m] == default ? new Rational(4, 1) : lengths[m],
+                lyricSize, symbolsByMeasure[m]);
+        }
+
         return measures;
     }
 
@@ -351,7 +363,9 @@ internal static class NotePreparation
     /// Horizontal spacing: every onset in the measure (across all parts) gets a column, and the gap to the next onset
     /// grows with the time between them, so simultaneous notes line up in every part.
     /// </summary>
-    private static PreparedMeasure Space(List<PreparedChord> chords, List<PreparedBeam> beams, List<MidMeasureClef> midClefs, Rational length, double lyricSize)
+    private static PreparedMeasure Space(
+        List<PreparedChord> chords, List<PreparedBeam> beams, List<MidMeasureClef> midClefs, Rational length, double lyricSize,
+        List<(int, ScoreChordSymbol)> chordSymbols)
     {
         var onsets = chords.Where(c => !c.IsMeasureRest).Select(c => c.Start).Distinct().OrderBy(t => t).ToList();
         if (onsets.Count == 0 && chords.Count > 0)
@@ -402,12 +416,27 @@ internal static class NotePreparation
             Widen(minSegments, i, next, need);
         }
 
+        // Chord symbols of a staff must clear the next symbol (or the barline). They may fall between onsets (a chord
+        // change during a held note), so the room is measured in time: the gaps that span the two symbols' beats grow.
+        foreach (var line in chordSymbols.GroupBy(c => (c.Item1, c.Item2.Staff)))
+        {
+            var ordered = line.Select(c => c.Item2).OrderBy(Position).ToList();
+            for (var k = 0; k < ordered.Count && onsets.Count > 0; k++)
+            {
+                var end = k + 1 < ordered.Count ? Position(ordered[k + 1]) : length;
+                var width = TextMetrics.Width(ScoreLayoutEngine.ChordDisplay(ordered[k].Text), lyricSize) + ChordSymbolGap * lyricSize;
+                WidenSpan(segments, onsets, length, Position(ordered[k]), end, width);
+                WidenSpan(minSegments, onsets, length, Position(ordered[k]), end, width);
+            }
+        }
+
         for (var i = 0; i < onsets.Count; i++)
             minSegments[i] = Math.Min(minSegments[i], segments[i]);
 
         return new PreparedMeasure
         {
             Chords = chords, Beams = beams, MidMeasureClefs = clefsAtOnsets, Onsets = onsets, Pre = pre, Segments = segments, MinSegments = minSegments,
+            ChordSymbols = chordSymbols, Length = length,
         };
     }
 
@@ -421,6 +450,37 @@ internal static class NotePreparation
     /// Least gap between two syllables, in ems. Like Finale's smart hyphens, a hyphen is only drawn where the gap is wider.
     /// </summary>
     public const double LyricGap = 0.3;
+
+    private static Rational Position(ScoreChordSymbol symbol) => new(symbol.PositionNumerator, symbol.PositionDenominator);
+
+    /// <summary>
+    /// Widens the gaps that overlap the time span from <paramref name="from"/> to <paramref name="to"/> by one factor until
+    /// the span is <paramref name="need"/> wide. A gap runs from its onset to the next onset (or the end of the measure).
+    /// </summary>
+    private static void WidenSpan(double[] gaps, List<Rational> onsets, Rational length, Rational from, Rational to, double need)
+    {
+        double Overlap(int j)
+        {
+            var (start, end) = (onsets[j], j + 1 < onsets.Count ? onsets[j + 1] : length);
+            var span = (end - start).ToDouble();
+            if (span <= 0) return 0;
+            var overlap = (Rational.Max(Rational.Zero, (to < end ? to : end) - (from > start ? from : start))).ToDouble();
+            return overlap / span;
+        }
+
+        var width = 0.0;
+        for (var j = 0; j < onsets.Count; j++) width += gaps[j] * Overlap(j);
+        if (width <= 0 || width >= need) return;
+
+        var factor = need / width;
+        for (var j = 0; j < onsets.Count; j++)
+        {
+            if (Overlap(j) > 0) gaps[j] *= factor;
+        }
+    }
+
+    /// <summary>Least gap after a chord symbol before the next one, in ems.</summary>
+    public const double ChordSymbolGap = 0.5;
 
     /// <summary>Widens gaps <paramref name="from"/> to <paramref name="to"/> − 1 in proportion until they add up to <paramref name="need"/>.</summary>
     private static void Widen(double[] gaps, int from, int to, double need)

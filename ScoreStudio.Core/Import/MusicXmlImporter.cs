@@ -1094,6 +1094,9 @@ public static class MusicXmlImporter
             }
 
             chord.Text = ChordText(chord, harmony);
+            if (double.TryParse((string?)harmony.Attribute("default-y"), NumberStyles.Float, CultureInfo.InvariantCulture, out var tenths)
+                && Math.Abs(tenths) <= 2000)
+                chord.Y = tenths / 10;
             measure.ChordSymbols.Add(chord);
         }
 
@@ -1144,7 +1147,8 @@ public static class MusicXmlImporter
                 _ => "",
             };
 
-            foreach (var degree in harmony.Elements("degree"))
+            // Degrees marked print-object="no" only describe the chord; the kind's text already shows what is printed.
+            foreach (var degree in harmony.Elements("degree").Where(d => (string?)d.Attribute("print-object") != "no"))
             {
                 var value = degree.Element("degree-value")?.Value.Trim() ?? "";
                 var alter = Accidental(Alter(degree.Element("degree-alter")));

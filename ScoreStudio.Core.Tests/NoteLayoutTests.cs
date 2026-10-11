@@ -431,6 +431,38 @@ public sealed class NoteLayoutTests
         Assert.True(incoming.X2 < d5.X && incoming.X2 > d5.X - Sp);
     }
 
+    [Theory]
+    [InlineData("Bb/D", "B♭/D")]
+    [InlineData("F#m7b5", "F♯m7b5")]
+    [InlineData("Ebbmaj7/Bb", "E♭♭maj7/B♭")]
+    [InlineData("N.C.", "N.C.")]
+    [InlineData("Cadd9", "Cadd9")]
+    public void ChordDisplay_UsesFlatAndSharpSignsOnlyForRootAndBass(string text, string shown) =>
+        Assert.Equal(shown, ScoreLayoutEngine.ChordDisplay(text));
+
+    [Fact]
+    public void ChordSymbols_StartAtTheirBeat_AboveTheStaff_OnOneLine()
+    {
+        var layout = ScoreLayoutEngine.Layout(MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", "hymn-repeats-chords.musicxml")).Project);
+        var page = layout.Pages[0];
+        var system = page.Systems[0];
+        var staffTop = system.Staves[0].Top;
+        var symbols = page.Items.OfType<TextItem>().Where(t => t.Y < staffTop && t.Y > staffTop - 6 * Sp && t.Anchor == TextAnchor.Start)
+            .OrderBy(t => t.X).ToList();
+        var heads = Glyphs(layout, Noteheads).Where(h => h.Y > staffTop - 2 * Sp && h.Y < system.Bottom + 2 * Sp).ToList();
+
+        Assert.Equal(new[] { "G", "D/F♯", "Em7", "CM7", "Am7b5", "Gsus4", "N.C.", "Gadd9" }, symbols.Select(s => s.Text));
+        Assert.Single(symbols.Select(s => s.Y).Distinct());
+        Assert.True(symbols[0].Y <= staffTop - 2.5 * Sp + 1e-9);
+
+        // Symbols on a note start at its notehead; N.C. falls between notes and sits between them.
+        Assert.Equal(heads[0].X, symbols[0].X, 9);
+        Assert.Contains(heads, h => Math.Abs(h.X - symbols.Single(s => s.Text == "Gsus4").X) < 1e-9);
+        var noChord = symbols.Single(s => s.Text == "N.C.");
+        Assert.DoesNotContain(heads, h => Math.Abs(h.X - noChord.X) < 1e-6);
+        Assert.True(noChord.X > symbols.Single(s => s.Text == "Gsus4").X && noChord.X < symbols.Single(s => s.Text == "Gadd9").X);
+    }
+
     [Fact]
     public void SourceLayout_PlacesStavesAndSystemsAtTheSourceDistances()
     {
@@ -524,12 +556,12 @@ public sealed class NoteLayoutTests
     }
 
     /// <summary>
-    /// Syllables of one lyric line never overlap (by the layout's own width estimate), even where spacing was squeezed
-    /// to keep the source's line breaks.
+    /// Syllables of one lyric line, and chord symbols of one staff, never overlap (by the layout's own width estimate),
+    /// even where spacing was squeezed to keep the source's line breaks. Both use the lyric font size.
     /// </summary>
     [Theory]
     [MemberData(nameof(AllScores))]
-    public void LyricSyllablesOfALineDoNotOverlap_InEveryScore(string file)
+    public void LyricAndChordSymbolLinesDoNotOverlap_InEveryScore(string file)
     {
         var project = MusicXmlImporter.ImportFile(file).Project;
         var size = project.Engraving?.LyricFontSize ?? 2.2 * (project.Engraving?.StaffSpace ?? Sp);

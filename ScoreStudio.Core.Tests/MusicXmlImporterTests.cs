@@ -277,6 +277,30 @@ public sealed class MusicXmlImporterTests : IDisposable
     }
 
     [Fact]
+    public void ChordSymbols_KeepTheirHeight_AndHiddenDegreesAreNotPrinted()
+    {
+        // Finale writes "C2/E" as kind text "2" plus an added 2nd marked print-object="no".
+        const string xml = """
+            <score-partwise>
+              <part-list><score-part id="P1"><part-name>A</part-name></score-part></part-list>
+              <part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes>
+                <harmony default-y="26"><root><root-step>C</root-step></root><kind text="2">major</kind>
+                  <bass><bass-step>E</bass-step></bass>
+                  <degree print-object="no"><degree-value>2</degree-value><degree-alter>0</degree-alter><degree-type>add</degree-type></degree></harmony>
+                <note><pitch><step>C</step><octave>5</octave></pitch><duration>2</duration></note>
+                <harmony><root><root-step>G</root-step></root><kind>major</kind>
+                  <degree><degree-value>9</degree-value><degree-alter>0</degree-alter><degree-type>add</degree-type></degree></harmony>
+                <note><pitch><step>D</step><octave>5</octave></pitch><duration>2</duration></note>
+              </measure></part>
+            </score-partwise>
+            """;
+
+        var symbols = MusicXmlImporter.ImportXml(xml, "chords").Project.Parts[0].Measures[0].ChordSymbols;
+
+        Assert.Equal(new[] { ("C2/E", (double?)2.6), ("Gadd9", null) }, symbols.Select(c => (c.Text, c.Y)));
+    }
+
+    [Fact]
     public void LyricPositions_AreReadFromDefaultY_AndPlacementAbove()
     {
         const string xml = """

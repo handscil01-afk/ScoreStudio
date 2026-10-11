@@ -511,6 +511,7 @@ public static partial class ScoreLayoutEngine
         // Measures: clef/key/time changes, notes and rests, barlines.
         var measureLayouts = new List<MeasureLayout>();
         var placed = new List<PlacedChord>();
+        var symbols = new List<PlacedSymbol>();
         var x = left + plan.HeaderWidth;
         for (var k = 0; k < plan.MeasureCount; k++)
         {
@@ -545,7 +546,7 @@ public static partial class ScoreLayoutEngine
                     DrawTimeSignature(items, info, prefixX, staffTops, sp);
             }
 
-            DrawMeasureNotes(items, prepared[index], slots, staffTops, measureLeft + planned.Prefix, measureRight, planned, sp, placed, index);
+            DrawMeasureNotes(items, prepared[index], slots, staffTops, measureLeft + planned.Prefix, measureRight, planned, sp, placed, index, symbols);
 
             var isFinal = isLastSystem && k == plan.MeasureCount - 1;
             DrawBarline(items, project, slots, top, measureRight, isFinal, sp);
@@ -556,6 +557,7 @@ public static partial class ScoreLayoutEngine
         DrawOctaveLines(items, placed, staffTops, sp);
         DrawTies(items, placed, slots, staffTops, left + plan.HeaderWidth, right, pendingTies, sp);
         DrawLyrics(items, placed, staffTops, right, lyricSize, sp);
+        DrawChordSymbols(items, symbols, placed, staffTops, lyricSize, sp);
 
         return new SystemLayout
         {
@@ -589,9 +591,17 @@ public static partial class ScoreLayoutEngine
 
     private static void DrawMeasureNotes(
         List<DrawItem> items, PreparedMeasure measure, List<StaffSlot> slots, double[] staffTops,
-        double contentLeft, double measureRight, PlannedMeasure plan, double sp, List<PlacedChord> placed, int measureIndex)
+        double contentLeft, double measureRight, PlannedMeasure plan, double sp, List<PlacedChord> placed, int measureIndex,
+        List<PlacedSymbol> symbols)
     {
-        if (measure.IsEmpty) return;
+        if (measure.IsEmpty)
+        {
+            PlaceChordSymbols(measure, slots, measureIndex, new List<(Rational, double)>
+            {
+                (Rational.Zero, contentLeft + MeasureLeftPadding * sp), (measure.Length, measureRight - MeasureLeftPadding * sp),
+            }, symbols);
+            return;
+        }
 
         // X of every onset: padding, then for each onset its accidental room and its (stretched) space to the next.
         var onsetX = new Dictionary<Rational, double>();
@@ -606,6 +616,12 @@ public static partial class ScoreLayoutEngine
                 ? measure.MinSegments[i] + (measure.Segments[i] - measure.MinSegments[i]) * plan.SlackScale
                 : measure.Segments[i] * plan.Scale) * sp;
         }
+
+        // Chord symbols start at their beat: onsets and the measure's end are the anchors between which beats are placed.
+        var anchors = measure.Onsets.Select(t => (t, onsetX[t])).ToList();
+        if (anchors[0].t.Sign > 0) anchors.Insert(0, (Rational.Zero, contentLeft + MeasureLeftPadding * sp));
+        anchors.Add((measure.Length, x));
+        PlaceChordSymbols(measure, slots, measureIndex, anchors, symbols);
 
         // Mid-measure clef changes sit at the start of the room reserved before their onset.
         foreach (var change in measure.MidMeasureClefs)
@@ -646,6 +662,18 @@ public static partial class ScoreLayoutEngine
                 var at = placed.FindLastIndex(p => ReferenceEquals(p.Chord, beam.Chords[i]));
                 placed[at] = placed[at] with { Top = Math.Min(placed[at].Top, stemEnds[i].Top), Bottom = Math.Max(placed[at].Bottom, stemEnds[i].Bottom) };
             }
+        }
+    }
+
+    private static void PlaceChordSymbols(
+        PreparedMeasure measure, List<StaffSlot> slots, int measureIndex, List<(Rational Time, double X)> anchors, List<PlacedSymbol> symbols)
+    {
+        foreach (var (partIndex, symbol) in measure.ChordSymbols)
+        {
+            var slot = slots.FindIndex(s => s.PartIndex == partIndex && s.StaffIndex == symbol.Staff);
+            if (slot < 0) continue;
+            var x = XAtTime(new Rational(symbol.PositionNumerator, symbol.PositionDenominator), anchors);
+            symbols.Add(new PlacedSymbol(slot, measureIndex, x, symbol));
         }
     }
 
