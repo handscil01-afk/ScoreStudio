@@ -683,6 +683,33 @@ public sealed class NoteLayoutTests
         Assert.True(overlaps.Count == 0, $"{name}: {overlaps.Count} overlaps: {string.Join("; ", overlaps)}");
     }
 
+    /// <summary>
+    /// Nothing of the music (chord symbols, ending brackets, octave lines, notes) reaches up into the title or the
+    /// composer lines on page 1.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllScores))]
+    public void MusicStaysBelowTheTitle_InEveryScore(string file)
+    {
+        var project = MusicXmlImporter.ImportFile(file).Project;
+        var page = ScoreLayoutEngine.Layout(project).Pages[0];
+        var firstStaff = page.Systems[0].Top;
+        var heading = page.Items.OfType<TextItem>().Where(t => t.Y < firstStaff && (t.Bold || t.Anchor == TextAnchor.End && t.Size == 3.5)).ToList();
+        if (heading.Count == 0) return;
+
+        var headingBottom = heading.Max(t => t.Y + 0.25 * t.Size);
+        var music = page.Items.Except(heading).Select(item => item switch
+        {
+            TextItem t => t.Y - 0.8 * t.Size,
+            LineItem l => Math.Min(l.Y1, l.Y2),
+            GlyphItem g => g.Y - 0.3 * g.Size,
+            BeamItem b => Math.Min(b.Y1, b.Y2),
+            CurveItem c => Math.Min(Math.Min(c.Y1, c.Y2), (c.Y1 + 3 * c.ControlY1 + 3 * c.ControlY2 + c.Y2) / 8),
+            _ => double.MaxValue,
+        });
+        Assert.True(music.Min() > headingBottom, $"{Path.GetFileName(file)}: music reaches {music.Min():F1} mm, above the heading's bottom at {headingBottom:F1} mm");
+    }
+
     /// <summary>Rules that hold for any score: beamed stems end exactly on their beam and carry no flag.</summary>
     [Theory]
     [MemberData(nameof(AllScores))]

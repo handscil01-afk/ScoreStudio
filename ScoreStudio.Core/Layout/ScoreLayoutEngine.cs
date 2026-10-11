@@ -139,7 +139,9 @@ public static partial class ScoreLayoutEngine
         var planned = PlanSystems(measures, prepared, allSlots, contentLeft, contentRight, nameIndent, options);
 
         var titleBottom = y;
+        var titleTextBottom = y > options.Top ? y - TitleGap + 2.5 : options.Top;
         var previousBottom = double.NaN;
+        var previousLowest = double.NaN;
         for (var i = 0; i < planned.Count; i++)
         {
             // Staves hidden throughout a system (Finale's hidden empty staves) are left out of it.
@@ -148,18 +150,27 @@ public static partial class ScoreLayoutEngine
             var systemHeight = slots[^1].Offset + 4 * sp;
             var pageBreak = first >= 0 && measures[first].PageBreak;
 
+            // Draw the system with its top line at 0 first, to see how far chord symbols, brackets and lyrics reach.
+            var scratch = new PageLayout { Number = page.Number, Width = pageWidth, Height = pageHeight };
+            var drawn = DrawSystem(scratch, project, planned[i], i == 0, i == planned.Count - 1, slots, clefs, measures, prepared, 0, options,
+                lyricSize, pendingTies);
+            var (above, below) = VerticalExtent(scratch.Items, sp);
+
             // With the source's layout, systems keep the source's distances; otherwise they follow one after another.
+            // Either way a system moves down if it would run into the title (or, without a source layout, into the
+            // page margin or the previous system).
             var top = page.Systems.Count == 0 ? FirstSystemTop() : previousBottom + SystemDistance() * sp;
+            top = Math.Max(top, Limit() - above - ExtentTolerance * sp);
             if ((top + systemHeight > contentBottom || pageBreak) && page.Systems.Count > 0)
             {
                 page = NewPage(pages, pageWidth, pageHeight, options);
-                top = FirstSystemTop();
+                top = Math.Max(FirstSystemTop(), Limit() - above - ExtentTolerance * sp);
             }
 
-            var system = DrawSystem(page, project, planned[i], i == 0, i == planned.Count - 1, slots, clefs, measures, prepared, top, options,
-                lyricSize, pendingTies);
-            page.Systems.Add(system);
+            page.Items.AddRange(scratch.Items.Select(item => Shift(item, top)));
+            page.Systems.Add(Shift(drawn, top));
             previousBottom = top + systemHeight;
+            previousLowest = top + below;
 
             double FirstSystemTop()
             {
@@ -171,10 +182,69 @@ public static partial class ScoreLayoutEngine
 
             double SystemDistance() =>
                 engraving is null ? options.SystemGap : SourceValue(project, first, m => m.SystemDistance) ?? engraving.SystemDistance;
+
+            // The highest a system's items may reach.
+            double Limit() =>
+                page.Systems.Count == 0 ? (pages.Count == 1 ? titleTextBottom : engraving is null ? options.Top : double.MinValue)
+                : engraving is null ? previousLowest + SystemClearance * sp : double.MinValue;
         }
 
         return new ScoreLayout { Pages = pages };
     }
+
+    /// <summary>Space between the title block and the first staff, in mm.</summary>
+    private const double TitleGap = 12;
+
+    /// <summary>How far a system may reach past its limit before it is moved (a staff line's half thickness), in staff spaces.</summary>
+    private const double ExtentTolerance = 0.25;
+
+    /// <summary>Least gap between the lowest item of one system and the highest of the next, in staff spaces.</summary>
+    private const double SystemClearance = 1.5;
+
+    /// <summary>
+    /// How far drawn items reach above and below y = 0, roughly: text by its font size, glyphs by part of their em,
+    /// lines, beams and ties by their geometry.
+    /// </summary>
+    private static (double Above, double Below) VerticalExtent(IEnumerable<DrawItem> items, double sp)
+    {
+        var (top, bottom) = (0.0, 0.0);
+        foreach (var item in items)
+        {
+            var (a, b) = item switch
+            {
+                TextItem t => (t.Y - 0.8 * t.Size, t.Y + 0.25 * t.Size),
+                LineItem l => (Math.Min(l.Y1, l.Y2) - l.Thickness / 2, Math.Max(l.Y1, l.Y2) + l.Thickness / 2),
+                BeamItem beam => (Math.Min(beam.Y1, beam.Y2), Math.Max(beam.Y1, beam.Y2) + beam.Thickness),
+                CurveItem c => (Math.Min(Math.Min(c.Y1, c.Y2), (c.Y1 + 3 * c.ControlY1 + 3 * c.ControlY2 + c.Y2) / 8),
+                                Math.Max(Math.Max(c.Y1, c.Y2), (c.Y1 + 3 * c.ControlY1 + 3 * c.ControlY2 + c.Y2) / 8)),
+                GlyphItem g => (g.Y - 0.3 * g.Size, g.Y + 0.15 * g.Size),
+                _ => (0.0, 0.0),
+            };
+            (top, bottom) = (Math.Min(top, a), Math.Max(bottom, b));
+        }
+
+        return (top, bottom);
+    }
+
+    private static DrawItem Shift(DrawItem item, double dy) => item switch
+    {
+        LineItem l => l with { Y1 = l.Y1 + dy, Y2 = l.Y2 + dy },
+        GlyphItem g => g with { Y = g.Y + dy },
+        TextItem t => t with { Y = t.Y + dy },
+        BeamItem b => b with { Y1 = b.Y1 + dy, Y2 = b.Y2 + dy },
+        CurveItem c => c with { Y1 = c.Y1 + dy, Y2 = c.Y2 + dy, ControlY1 = c.ControlY1 + dy, ControlY2 = c.ControlY2 + dy },
+        _ => item,
+    };
+
+    private static SystemLayout Shift(SystemLayout system, double dy) => new()
+    {
+        Top = system.Top + dy,
+        Bottom = system.Bottom + dy,
+        Left = system.Left,
+        Right = system.Right,
+        Staves = system.Staves.Select(s => s with { Top = s.Top + dy }).ToList(),
+        Measures = system.Measures,
+    };
 
     private static PageLayout NewPage(List<PageLayout> pages, double width, double height, LayoutOptions options)
     {
@@ -211,7 +281,7 @@ public static partial class ScoreLayoutEngine
             }
         }
 
-        return hasTitle || hasComposer ? y + 12 : y;
+        return hasTitle || hasComposer ? y + TitleGap : y;
     }
 
     /// <summary>
