@@ -53,6 +53,12 @@ public sealed class ScoreEditor
 
     public NoteType InputType { get; private set; } = NoteType.Quarter;
 
+    /// <summary>
+    /// A note longer than what is left of the measure: false refuses it (the default); true enters what fits and goes on
+    /// in the next measures, tied (rests are split without ties), adding measures at the end as needed.
+    /// </summary>
+    public bool TieAcrossBarlines { get; set; }
+
     public int InputDots { get; private set; }
 
     public Rational InputLength => Length(InputType, InputDots);
@@ -90,8 +96,9 @@ public sealed class ScoreEditor
         {
             var measure = MeasureAt(at);
             var available = MeasureLength(measure) - at.Position;
-            if (length > available)
-                return $"이 마디에 남은 길이({DescribeLength(available)})보다 긴 {DescribeValue(InputType, InputDots, step is null)}는 넣을 수 없습니다.";
+            if (length > available && !TieAcrossBarlines)
+                return $"이 마디에 남은 길이({DescribeLength(available)})보다 긴 {DescribeValue(InputType, InputDots, step is null)}는 넣을 수 없습니다. "
+                    + "(설정에서 '마디를 넘는 음표를 다음 마디로 이어 넣기'를 켜면 붙임줄로 이어 넣습니다.)";
 
             ScoreEvent? note = null;
             if (step is { } s)
@@ -101,23 +108,57 @@ public sealed class ScoreEditor
                 pitchName = note.NotationSpelling;
             }
 
-            ClearSpan(measure, at.Staff, at.Voice, at.Position, at.Position + length);
-            measure.Events.Add(note is not null ? WithTime(note, at.Position, length) : NewRest(at, at.Position, length));
-            AutoBeam(measure, at.Staff, at.Voice);
+            // Measure by measure: what fits here, written as plain values, tied on to the rest in the next measure.
+            var place = at;
+            var remaining = length;
+            while (true)
+            {
+                var current = MeasureAt(place);
+                var take = Min(remaining, MeasureLength(current) - place.Position);
+                ClearSpan(current, place.Staff, place.Voice, place.Position, place.Position + take);
+                var pieces = take == length ? new List<Rational> { take } : Pieces(take);
+                var position = place.Position;
+                foreach (var piece in pieces)
+                {
+                    remaining -= piece;
+                    if (note is null)
+                    {
+                        current.Events.Add(NewRest(place, position, piece));
+                    }
+                    else
+                    {
+                        var copy = Clone(new[] { note })[0];
+                        copy.TieToNext = remaining.Sign > 0;
+                        current.Events.Add(WithTime(copy, position, piece));
+                    }
+
+                    position += piece;
+                }
+
+                AutoBeam(current, place.Staff, place.Voice);
+                var lastMeasure = place.Measure == Project.Parts[place.Part].Measures.Count - 1;
+                if (remaining.Sign > 0)
+                {
+                    if (lastMeasure) AddMeasureAfter(place.Measure);
+                    place = place with { Measure = place.Measure + 1, Position = Rational.Zero };
+                    continue;
+                }
+
+                if (position < MeasureLength(current))
+                {
+                    Cursor = place with { Position = position };
+                }
+                else
+                {
+                    if (lastMeasure) AddMeasureAfter(place.Measure);
+                    Cursor = place with { Measure = place.Measure + 1, Position = Rational.Zero };
+                }
+
+                break;
+            }
 
             Selection = at;
             SelectionIsEntry = true;
-            var next = at.Position + length;
-            if (next < MeasureLength(measure))
-            {
-                Cursor = at with { Position = next };
-            }
-            else
-            {
-                if (at.Measure == Project.Parts[at.Part].Measures.Count - 1) AddMeasureAfter(at.Measure);
-                Cursor = at with { Measure = at.Measure + 1, Position = Rational.Zero };
-            }
-
             return null;
         }, () => step is null
             ? $"{DescribeValue(InputType, InputDots, rest: true)}를 넣었습니다."
@@ -178,15 +219,14 @@ public sealed class ScoreEditor
 
         return Change(() =>
         {
-            var events = ChordAt(at)!;
+            // Notes tied to the selected ones (before and after, across barlines) move with them, so the ties hold.
+            var events = TiedWith(at, ChordAt(at)!);
             if (events.Any(e => e.MidiPitch + semitones is < 0 or > 127)) return "음높이 범위(MIDI 0~127)를 벗어납니다.";
 
-            UntieInto(at, events);
             foreach (var e in events)
             {
                 e.MidiPitch += semitones;
                 e.NotationSpelling = null; // spelled again from the key, as for imported notes without a spelling
-                e.TieToNext = false;
             }
 
             return null;
@@ -582,6 +622,36 @@ public sealed class ScoreEditor
 
             if (end > to) AddRests(measure, at, to, end);
         }
+    }
+
+    private static Rational Min(Rational a, Rational b) => a < b ? a : b;
+
+    /// <summary>
+    /// The chord's notes with every note tied to them: back through notes tying into them and on through their own ties,
+    /// across measures of the voice.
+    /// </summary>
+    private List<ScoreEvent> TiedWith(EditPosition at, List<ScoreEvent> chord)
+    {
+        var part = Project.Parts[at.Part];
+        var chords = Enumerable.Range(0, part.Measures.Count)
+            .SelectMany(m => VoiceChords(part.Measures[m], at.Staff, at.Voice).Select(c => (Measure: m, Events: c)))
+            .ToList();
+        var index = chords.FindIndex(c => c.Measure == at.Measure && Start(c.Events[0]) == at.Position);
+        var result = new List<ScoreEvent>(chord);
+        foreach (var note in chord)
+        {
+            var pitch = note.MidiPitch;
+            for (var i = index - 1; i >= 0 && chords[i].Events.FirstOrDefault(e => e.MidiPitch == pitch && e.TieToNext) is { } before; i--)
+                result.Add(before);
+            var current = note;
+            for (var i = index + 1; i < chords.Count && current.TieToNext && chords[i].Events.FirstOrDefault(e => e.MidiPitch == pitch) is { } after; i++)
+            {
+                result.Add(after);
+                current = after;
+            }
+        }
+
+        return result.Distinct().ToList();
     }
 
     /// <summary>Notes of the chord just before <paramref name="at"/> in its voice stop tying into these pitches.</summary>

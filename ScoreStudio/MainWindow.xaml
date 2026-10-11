@@ -27,6 +27,11 @@
                 <Separator/>
                 <MenuItem Header="키보드 입력 방법" Click="KeyHelp_Click"/>
             </MenuItem>
+            <MenuItem Header="_설정">
+                <MenuItem x:Name="TieAcrossBarlinesMenuItem" Header="마디를 넘는 음표를 다음 마디로 이어 넣기(붙임줄)" IsCheckable="True"
+                          Click="TieAcrossBarlines_Click"
+                          ToolTip="끄면(기본) 마디에 남은 길이보다 긴 음표는 넣지 않습니다. 켜면 남은 만큼 넣고 나머지를 다음 마디에 붙임줄로 이어 넣습니다."/>
+            </MenuItem>
             <MenuItem Header="_도움말">
                 <MenuItem Header="개발 상태" Click="About_Click"/>
             </MenuItem>

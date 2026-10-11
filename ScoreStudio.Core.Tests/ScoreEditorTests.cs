@@ -82,6 +82,83 @@ public sealed class ScoreEditorTests : IDisposable
     }
 
     [Fact]
+    public void TooLongNote_IsRefusedByDefault_WithTheSettingNamed()
+    {
+        var editor = NewEditor();
+        Enter(editor, "CDE");
+        editor.SetInputValue(NoteType.Half, 0);
+        var refused = editor.EnterNote('F');
+        Assert.False(refused.Done);
+        Assert.Contains("이어 넣기", refused.Message);
+    }
+
+    [Fact]
+    public void WithTiesAcrossBarlines_ATooLongNote_GoesOnTiedInTheNextMeasures()
+    {
+        var editor = NewEditor();
+        editor.TieAcrossBarlines = true;
+        Enter(editor, "CDE");
+        editor.SetInputValue(NoteType.Half, 0);
+        Assert.True(editor.EnterNote('F').Done);
+
+        var m0 = editor.Project.Parts[0].Measures[0].Events;
+        var m1 = editor.Project.Parts[0].Measures[1].Events;
+        Assert.Equal((R(3), R(1), 77, true), (new Rational(m0[^1].PositionNumerator, m0[^1].PositionDenominator),
+            new Rational(m0[^1].DurationNumerator, m0[^1].DurationDenominator), m0[^1].MidiPitch, m0[^1].TieToNext));
+        Assert.Equal((R(0), R(1), 77, false), (new Rational(m1[0].PositionNumerator, m1[0].PositionDenominator),
+            new Rational(m1[0].DurationNumerator, m1[0].DurationDenominator), m1[0].MidiPitch, m1[0].TieToNext));
+        Assert.Equal(new EditPosition(0, 0, 1, 1, R(1)), editor.Cursor);
+        Assert.Equal(new EditPosition(0, 0, 1, 0, R(3)), editor.Selection);
+        Assert.Single(ScoreLayoutEngine.Layout(editor.Project).Pages.Single().Items.OfType<CurveItem>());
+
+        // Moving the note moves its tied part too, so the tie holds.
+        Assert.True(editor.Transpose(2).Done);
+        Assert.Equal((79, true, 79), (m0[^1].MidiPitch, m0[^1].TieToNext, m1[0].MidiPitch));
+        editor.Select(new EditPosition(0, 0, 1, 1, R(0)));
+        Assert.True(editor.Transpose(-1).Done);
+        Assert.Equal((78, 78), (editor.Project.Parts[0].Measures[0].Events[^1].MidiPitch, editor.Project.Parts[0].Measures[1].Events[0].MidiPitch));
+
+        // One undo takes the whole tied entry back.
+        editor.Undo();
+        editor.Undo();
+        Assert.True(editor.Undo().Done);
+        Assert.Equal(3, editor.Project.Parts[0].Measures[0].Events.Count);
+        Assert.Empty(editor.Project.Parts[0].Measures[1].Events);
+    }
+
+    [Fact]
+    public void WithTiesAcrossBarlines_LongValuesSpanMeasures_AndRestsSplitWithoutTies()
+    {
+        var editor = NewEditor();
+        editor.TieAcrossBarlines = true;
+        editor.PlaceCursor(0, 0, 3, R(3));
+        editor.SetInputValue(NoteType.Whole, 0);
+        Assert.True(editor.EnterNote('G').Done); // the last measure: a measure is added for the rest of the note
+        Assert.Equal(5, editor.Project.Parts[0].Measures.Count);
+        Assert.Equal((R(1), true), (Chords(editor, 3)[^1].Length, editor.Project.Parts[0].Measures[3].Events[^1].TieToNext));
+        Assert.Equal(new[] { (R(0), R(3, 1), "Note") }, Chords(editor, 4).Select(c => (c.Start, c.Length, c.Kind)));
+        Assert.False(editor.Project.Parts[0].Measures[4].Events[0].TieToNext);
+
+        editor.PlaceCursor(0, 0, 0, R(2));
+        Assert.True(editor.EnterRest().Done);
+        Assert.Equal(new[] { (R(2), R(2), "Rest") }, Chords(editor, 0).Select(c => (c.Start, c.Length, c.Kind)));
+        Assert.Equal(new[] { (R(0), R(2), "Rest") }, Chords(editor, 1).Select(c => (c.Start, c.Length, c.Kind)));
+        Assert.All(editor.Project.Parts[0].Measures.SelectMany(m => m.Events).Where(e => e.Kind == "Rest"), e => Assert.False(e.TieToNext));
+    }
+
+    [Fact]
+    public void Settings_AreSavedAndRead_AndADamagedFileGivesTheDefaults()
+    {
+        var path = Path.Combine(_dir, "sub", "settings.json");
+        Assert.False(AppSettings.Load(path).TieAcrossBarlines);
+        Assert.True(new AppSettings { TieAcrossBarlines = true }.Save(path));
+        Assert.True(AppSettings.Load(path).TieAcrossBarlines);
+
+        File.WriteAllText(path, "{ not json");
+        Assert.False(AppSettings.Load(path).TieAcrossBarlines);
+    }
+
+    [Fact]
     public void FillingTheLastMeasure_AddsAMeasureToEveryPart()
     {
         var editor = NewEditor();

@@ -17,6 +17,11 @@ namespace ScoreStudio;
 
 public partial class MainWindow : Window
 {
+    /// <summary>Where the program's own settings live: the user's application data folder.</summary>
+    private static readonly string SettingsPath = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ScoreStudio", "settings.json");
+
+    private readonly AppSettings _settings = AppSettings.Load(SettingsPath);
     private ScoreEditor _editor = new(ScoreProject.CreateNew());
     private ScoreLayout? _layout;
     private readonly List<PageView> _pageViews = new();
@@ -35,6 +40,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _editor.TieAcrossBarlines = _settings.TieAcrossBarlines;
+        TieAcrossBarlinesMenuItem.IsChecked = _settings.TieAcrossBarlines;
         SetZoom(1);
         ApplyProjectToUi();
         Loaded += (_, _) => ScoreScroll.Focus();
@@ -42,7 +49,7 @@ public partial class MainWindow : Window
 
     private void UseProject(ScoreProject project)
     {
-        _editor = new ScoreEditor(project);
+        _editor = new ScoreEditor(project) { TieAcrossBarlines = _settings.TieAcrossBarlines };
         _savedChangeCount = _editor.ChangeCount;
         ApplyProjectToUi();
     }
@@ -215,6 +222,18 @@ public partial class MainWindow : Window
             RunEdit(ed => ed.SetInputValue(type, 0));
     }
 
+    private void TieAcrossBarlines_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.TieAcrossBarlines = TieAcrossBarlinesMenuItem.IsChecked;
+        _editor.TieAcrossBarlines = _settings.TieAcrossBarlines;
+        var saved = _settings.Save(SettingsPath);
+        StatusText.Content = (_settings.TieAcrossBarlines
+                ? "마디를 넘는 음표는 다음 마디로 붙임줄로 이어 넣습니다."
+                : "마디에 남은 길이보다 긴 음표는 넣지 않습니다.")
+            + (saved ? "" : " (설정 파일을 저장하지 못해 프로그램을 닫으면 원래대로 돌아갑니다.)");
+        ScoreScroll.Focus();
+    }
+
     private void KeyHelp_Click(object sender, RoutedEventArgs e)
     {
         MessageBox.Show(this,
@@ -231,7 +250,8 @@ public partial class MainWindow : Window
             "Ctrl+C, Ctrl+V : 입력 위치의 마디 복사, 붙여넣기\n" +
             "Esc : 선택 해제\n\n" +
             "음표를 누르면 선택하고, 빈 곳을 누르면 그 마디에 입력 위치를 둡니다.\n" +
-            "음표를 선택한 상태에서 길이 키를 누르면 그 음표의 길이가 바뀝니다.",
+            "음표를 선택한 상태에서 길이 키를 누르면 그 음표의 길이가 바뀝니다.\n" +
+            "마디에 남은 길이보다 긴 음표는 넣지 않습니다. 설정 메뉴에서 다음 마디로 붙임줄로 이어 넣게 바꿀 수 있습니다.",
             "키보드 입력 방법", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
