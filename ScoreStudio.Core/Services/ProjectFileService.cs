@@ -138,8 +138,10 @@ public static class ProjectFileService
         // Saving always writes the current version.
     }
 
-    /// <summary>Largest distance between staves or systems, in staff spaces (well over a page).</summary>
-    private const double MaxDistance = 200;
+    /// <summary>Largest distance between staves or systems, or measure width, in staff spaces (well over a page).</summary>
+    public const double MaxLayoutDistance = 200;
+
+    private const double MaxDistance = MaxLayoutDistance;
 
     private static bool InRange(double value, double min, double max) => value >= min && value <= max;
 
@@ -236,8 +238,9 @@ public static class ProjectFileService
                 measure.StaffDistances ??= new List<ScoreStaffDistance>();
                 if ((measure.SystemDistance is { } systemDistance && !InRange(systemDistance, 0, MaxDistance))
                     || (measure.TopSystemDistance is { } topDistance && !InRange(topDistance, 0, MaxDistance))
+                    || (measure.SourceWidth is { } sourceWidth && (sourceWidth <= 0 || sourceWidth > MaxDistance))
                     || measure.StaffDistances.Any(d => d is null || d.Staff < 0 || d.Staff >= part.Staves.Count || !InRange(d.Distance, 0, MaxDistance)))
-                    throw Corrupt($"{where}의 줄·보표 간격 정보가 올바르지 않습니다.");
+                    throw Corrupt($"{where}의 줄·보표 간격 또는 마디 폭 정보가 올바르지 않습니다.");
 
                 measure.HiddenStaves ??= new List<int>();
                 if (measure.HiddenStaves.Any(s => s < 0 || s >= part.Staves.Count))

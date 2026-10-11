@@ -885,6 +885,51 @@ public sealed class NoteLayoutTests
         Assert.Equal(new[] { false, false, false, false, false }, Stems(page, boxes[1]).Select(s => Ends(s).Up));
     }
 
+    private static ScoreProject SourceWidthsSample() =>
+        MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", "source-widths.musicxml")).Project;
+
+    [Fact]
+    public void SourceWidths_KeepTheSourceSystems_AtTheSourceProportions()
+    {
+        var project = SourceWidthsSample();
+        Assert.Equal(new double?[] { 30, 14, 53.1, 20, 20 }, project.Parts[0].Measures.Select(m => m.SourceWidth));
+
+        var page = ScoreLayoutEngine.Layout(project).Pages.Single();
+        var (first, last) = (page.Systems[0], page.Systems[1]);
+        Assert.Equal(new[] { 0, 1, 2 }, first.Measures.Select(m => m.MeasureIndex));
+        Assert.Equal(new[] { 3, 4 }, last.Measures.Select(m => m.MeasureIndex));
+        static double Width(MeasureLayout m) => m.Right - m.Left;
+
+        // Measures after the header keep the source's proportions, also in the last system, which stays as short as
+        // it was in the source instead of filling the line.
+        Assert.Equal(14 / 53.1, Width(first.Measures[1]) / Width(first.Measures[2]), 6);
+        Assert.Equal(Width(first.Measures[2]) * 20 / 53.1, Width(last.Measures[1]), 6);
+        Assert.Equal(first.Right, first.Measures[^1].Right, 6);
+        Assert.True(last.Measures[^1].Right < first.Left + 0.5 * (first.Right - first.Left));
+
+        // The eight eighths of the narrow measure keep their order and never touch.
+        var m2 = first.Measures[1];
+        var heads = page.Items.OfType<GlyphItem>().Where(g => g.Glyph == Smufl.NoteheadBlack && g.X > m2.Left && g.X < m2.Right)
+            .OrderBy(g => g.X).ToList();
+        Assert.Equal(8, heads.Count);
+        for (var i = 1; i < heads.Count; i++)
+            Assert.True(heads[i].X - heads[i - 1].X > Smufl.NoteheadWidth(NoteType.Eighth) * Sp, $"eighth {i}");
+        Assert.True(heads[^1].X + Smufl.NoteheadWidth(NoteType.Eighth) * Sp < m2.Right);
+    }
+
+    [Fact]
+    public void SourceWidths_AreNotUsed_ForASystemWithAMeasureWithoutOne()
+    {
+        var some = SourceWidthsSample();
+        some.Parts[0].Measures[1].SourceWidth = null;
+        var none = SourceWidthsSample();
+        foreach (var measure in none.Parts[0].Measures.Take(3)) measure.SourceWidth = null;
+
+        static IEnumerable<(double, double)> FirstSystem(ScoreProject p) =>
+            ScoreLayoutEngine.Layout(p).Pages[0].Systems[0].Measures.Select(m => (m.Left, m.Right));
+        Assert.Equal(FirstSystem(none), FirstSystem(some));
+    }
+
     /// <summary>The staff space a score is laid out with: the source's, or the default.</summary>
     private static double SpaceOf(ScoreProject project) => project.Engraving?.StaffSpace ?? Sp;
 

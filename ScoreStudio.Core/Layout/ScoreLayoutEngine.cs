@@ -76,7 +76,8 @@ public static partial class ScoreLayoutEngine
 
     private sealed record MeasureInfo(
         int Number, int Numerator, int Denominator, bool ShowsTimeSignature, int[] Keys, bool KeyChanges,
-        bool ClefChangeAtStart, bool SystemBreak, bool PageBreak, bool RepeatStart, bool RepeatEnd, ScoreVolta? Volta);
+        bool ClefChangeAtStart, bool SystemBreak, bool PageBreak, bool RepeatStart, bool RepeatEnd, ScoreVolta? Volta,
+        double? SourceWidth = null);
 
     /// <summary>Room for a repeat sign (thick line, thin line, dots and a gap), in staff spaces.</summary>
     private const double RepeatSignWidth = 2.2;
@@ -88,7 +89,33 @@ public static partial class ScoreLayoutEngine
     /// <param name="SlackScale">
     /// Below 1 when the system is squeezed: the part of each gap above its minimum that is kept (0 keeps only the minimum).
     /// </param>
-    private sealed record PlannedMeasure(int Index, double Prefix, double Width, double Scale, double SlackScale);
+    /// <param name="MinScale">
+    /// Below 1 when even the minimum gaps are too wide for the source's measure width: the part of each minimum gap above
+    /// the room its notes take that is kept.
+    /// </param>
+    /// <param name="Compress">
+    /// Below 1 when even the narrowest notes overflow the source's system a little: everything in the measure shrinks by it.
+    /// </param>
+    private sealed record PlannedMeasure(
+        int Index, double Prefix, double Width, double Scale, double SlackScale, double MinScale = 1, double Compress = 1);
+
+    /// <summary>
+    /// How much a source system may be squeezed beyond its narrowest notes to keep the source's line (fast notes then
+    /// come within about a tenth of a space).
+    /// </summary>
+    private const double MaxCompression = 0.05;
+
+    /// <summary>
+    /// A measure as the planner sees it, in mm: natural width (with any key or time change and end repeat), the part
+    /// that stretches, how much can be squeezed before gaps reach their minimum, how much more before notes would
+    /// touch, its width in the source's layout (staff spaces), and whether it holds lyrics or chord symbols.
+    /// </summary>
+    private sealed record MeasureCandidate(
+        int Index, double Prefix, double Width, double Stretch, double Slack, double Squeeze, double? Source, bool HasText = false)
+    {
+        public double Narrowest => Width - Slack;
+        public double Hardest => Width - Slack - Squeeze;
+    }
 
     private sealed record PlannedSystem(int FirstMeasure, double Left, double HeaderWidth, IReadOnlyList<PlannedMeasure> Measures)
     {
@@ -135,7 +162,7 @@ public static partial class ScoreLayoutEngine
         var prepared = NotePreparation.Prepare(project, measures.Count, clefs, lyricSize / sp);
         var pendingTies = new List<PendingTie>();
         var nameIndent = PartNameIndent(project);
-        var planned = PlanSystems(measures, prepared, allSlots, contentLeft, contentRight, nameIndent, options);
+        var planned = PlanSystems(measures, prepared, allSlots, contentLeft, contentRight, nameIndent, options, project.Engraving is not null);
 
         var titleBottom = y;
         var titleTextBottom = y > options.Top ? y - TitleGap + 2.5 : options.Top;
@@ -356,7 +383,8 @@ public static partial class ScoreLayoutEngine
                 PageBreak: i > 0 && parts.Any(m => m.PageBreak),
                 RepeatStart: parts.Any(m => m.RepeatStart),
                 RepeatEnd: parts.Any(m => m.RepeatEnd),
-                Volta: parts.Select(m => m.Volta).FirstOrDefault(v => v is not null)));
+                Volta: parts.Select(m => m.Volta).FirstOrDefault(v => v is not null),
+                SourceWidth: parts.Select(m => m.SourceWidth).FirstOrDefault(w => w is not null)));
         }
 
         return infos;
@@ -406,31 +434,101 @@ public static partial class ScoreLayoutEngine
     }
 
     /// <summary>
-    /// Natural width of a measure's contents in staff spaces, the part of it that stretches, and how much of it can be
-    /// squeezed away without notes or syllables running into each other.
+    /// Natural width of a measure's contents in staff spaces, the part of it that stretches, how much of it can be
+    /// squeezed away without notes or syllables running into each other, and how much more before the notes would touch.
     /// </summary>
-    private static (double Width, double Stretch, double Slack) MeasureContentWidth(PreparedMeasure measure, LayoutOptions options)
+    private static (double Width, double Stretch, double Slack, double Squeeze) MeasureContentWidth(PreparedMeasure measure, LayoutOptions options)
     {
+        // The floor for short measures gives way like the gaps do (Finale sets a lone dotted half in 6/8 under 7 spaces).
+        var floor = NotePreparation.MinimumGapScale * MeasureMinContentWidth;
         if (measure.IsEmpty)
-            return (options.MeasureMinWidth, options.MeasureMinWidth, options.MeasureMinWidth * (1 - NotePreparation.MinimumGapScale));
+        {
+            var empty = NotePreparation.MinimumGapScale * options.MeasureMinWidth;
+            return (options.MeasureMinWidth, options.MeasureMinWidth, options.MeasureMinWidth - empty, Math.Max(0, empty - floor));
+        }
 
         var segments = measure.Segments.Sum();
-        var fixedPart = MeasureLeftPadding + measure.Pre.Sum();
+        var fixedPart = measure.Lead + measure.Pre.Sum();
         var width = Math.Max(fixedPart + segments, MeasureMinContentWidth);
-        // The floor for short measures gives way like the gaps do (Finale sets a lone dotted half in 6/8 under 7 spaces).
-        var narrowest = Math.Max(fixedPart + measure.MinSegments.Sum(), NotePreparation.MinimumGapScale * MeasureMinContentWidth);
-        return (width, segments, Math.Max(0, width - narrowest));
+        var narrowest = Math.Max(fixedPart + measure.MinSegments.Sum(), floor);
+        var hardest = Math.Max(measure.HardLead + measure.Pre.Sum() + measure.HardSegments.Sum(), floor);
+        return (width, segments, Math.Max(0, width - narrowest), Math.Max(0, narrowest - hardest));
     }
 
+    /// <summary>A measure planned at <paramref name="target"/> mm: stretched, squeezed into its slack, or below its minimum gaps.</summary>
+    private static PlannedMeasure FitMeasure(MeasureCandidate c, double target)
+    {
+        if (target >= c.Width)
+            return new PlannedMeasure(c.Index, c.Prefix, target, c.Stretch > 0 ? (c.Stretch + target - c.Width) / c.Stretch : 1, 1);
+        if (target >= c.Narrowest)
+            return new PlannedMeasure(c.Index, c.Prefix, target, 1, c.Slack > 0 ? 1 - (c.Width - target) / c.Slack : 1);
+        var minScale = c.Squeeze > 0 ? Math.Max(0, 1 - (c.Narrowest - target) / c.Squeeze) : 1;
+        return new PlannedMeasure(c.Index, c.Prefix, Math.Max(target, c.Hardest), 1, 0, minScale);
+    }
+
+    /// <summary>
+    /// A source system whose narrowest notes overflow the system by at most <see cref="MaxCompression"/>: every measure at
+    /// its narrowest, all shrunk alike to fit. Null when it overflows by more, or when it has lyrics or chord symbols
+    /// (shrinking would bring them together).
+    /// </summary>
+    private static List<PlannedMeasure>? Compressed(List<MeasureCandidate> segment, double header, double available)
+    {
+        if (segment.Any(c => c.HasText)) return null;
+        var hardest = segment.Sum(c => c.Hardest - c.Prefix);
+        var fixedWidth = segment.Sum(c => c.Prefix);
+        var compress = (available - header - fixedWidth) / hardest;
+        if (compress < 1 - MaxCompression) return null;
+        return segment.Select(c => new PlannedMeasure(c.Index, c.Prefix, c.Prefix + (c.Hardest - c.Prefix) * compress, 1, 0, 0, compress)).ToList();
+    }
+
+    /// <summary>
+    /// Plans a source system at the source's measure widths: each measure gets a share of the system in proportion to its
+    /// width in the source (the first one less ScoreStudio's header). A measure whose share is narrower than its notes
+    /// takes the room its notes need, and the others share what is left. <paramref name="maxScale"/> (mm per source staff
+    /// space) keeps a last system that was short in the source short. Null when the notes cannot fit.
+    /// </summary>
+    private static List<PlannedMeasure>? FitToSourceWidths(List<MeasureCandidate> segment, double header, double available, double? maxScale)
+    {
+        var pinned = new HashSet<int>();
+        while (true)
+        {
+            var free = Enumerable.Range(0, segment.Count).Where(i => !pinned.Contains(i)).ToList();
+            if (free.Count == 0) return Compressed(segment, header, available);
+
+            var room = available - (pinned.Contains(0) ? header : 0) - pinned.Sum(i => segment[i].Hardest);
+            var scale = room / free.Sum(i => segment[i].Source!.Value);
+            if (maxScale is { } cap) scale = Math.Min(scale, cap);
+            if (scale <= 0) return Compressed(segment, header, available);
+
+            double Target(int i) => scale * segment[i].Source!.Value - (i == 0 ? header : 0);
+            var tooNarrow = free.Where(i => Target(i) < segment[i].Hardest - 1e-9).ToList();
+            if (tooNarrow.Count == 0)
+                return segment.Select((c, i) => FitMeasure(c, pinned.Contains(i) ? c.Hardest : Target(i))).ToList();
+            pinned.UnionWith(tooNarrow);
+        }
+    }
+
+    /// <param name="sourceLayout">The score has the source's page layout, so the source's measure widths can be used.</param>
     private static List<PlannedSystem> PlanSystems(
         List<MeasureInfo> measures, PreparedMeasure[] prepared, List<StaffSlot> slots,
-        double contentLeft, double contentRight, double nameIndent, LayoutOptions options)
+        double contentLeft, double contentRight, double nameIndent, LayoutOptions options, bool sourceLayout)
     {
         var sp = options.StaffSpace;
         var clefWidth = slots.Max(s => Smufl.ClefAdvanceWidth(s.Clef));
         var followSourceBreaks = measures.Any(m => m.SystemBreak);
         var systems = new List<PlannedSystem>();
         var next = 0;
+
+        // The source's systems (between its line breaks) and, for a last system that is short in the source, the scale
+        // of the others: mm here per staff space of source width.
+        var starts = Enumerable.Range(0, measures.Count).Where(m => m == 0 || measures[m].SystemBreak).ToList();
+        var fullScales = starts.SkipLast(1).Select((start, s) =>
+        {
+            var end = s + 1 < starts.Count ? starts[s + 1] : measures.Count;
+            var widths = Enumerable.Range(start, end - start).Select(m => measures[m].SourceWidth).ToList();
+            return widths.All(w => w is not null) ? (contentRight - contentLeft - (start == 0 ? nameIndent : 0)) / widths.Sum(w => w!.Value) : (double?)null;
+        }).Where(s => s is not null).Select(s => s!.Value).ToList();
+        double? lastSystemScale = fullScales.Count > 0 ? fullScales.Average() : null;
 
         do
         {
@@ -443,17 +541,28 @@ public static partial class ScoreLayoutEngine
             while (segmentEnd < measures.Count && !measures[segmentEnd].SystemBreak) segmentEnd++;
             if (measures.Count == 0) segmentEnd = 0;
 
-            var segment = new List<(int Index, double Prefix, double Width, double Stretch, double Slack)>();
+            var segment = new List<MeasureCandidate>();
             for (var m = next; m < segmentEnd; m++)
             {
                 var prefix = m > next ? MeasurePrefixWidth(measures[m]) * sp : 0;
-                var (content, stretch, slack) = MeasureContentWidth(prepared[m], options);
+                var (content, stretch, slack, squeeze) = MeasureContentWidth(prepared[m], options);
                 var repeatEnd = measures[m].RepeatEnd ? RepeatSignWidth * sp : 0;
-                segment.Add((m, prefix, prefix + content * sp + repeatEnd, stretch * sp, slack * sp));
+                var hasText = prepared[m].ChordSymbols.Count > 0 || prepared[m].Chords.Any(c => c.Lyrics.Count > 0);
+                segment.Add(new MeasureCandidate(m, prefix, prefix + content * sp + repeatEnd, stretch * sp, slack * sp, squeeze * sp, measures[m].SourceWidth, hasText));
+            }
+
+            // A source system whose measures all carry their source width is kept whole, at the source's proportions.
+            if (sourceLayout && followSourceBreaks && segment.Count > 0 && segment.All(c => c.Source is not null)
+                && (next == 0 || measures[next].SystemBreak)
+                && FitToSourceWidths(segment, header, available, segmentEnd >= measures.Count && next > 0 ? lastSystemScale : null) is { } fitted)
+            {
+                systems.Add(new PlannedSystem(next, left, header, fitted));
+                next = segmentEnd;
+                continue;
             }
 
             var used = header + segment.Sum(c => c.Width);
-            List<(int Index, double Prefix, double Width, double Stretch, double Slack)> chosen;
+            List<MeasureCandidate> chosen;
             if (used <= available || (followSourceBreaks && used - available <= segment.Sum(c => c.Slack)))
             {
                 // The whole segment fits, if need be with tighter spacing.
@@ -462,7 +571,7 @@ public static partial class ScoreLayoutEngine
             else
             {
                 // Too long: fill the system greedily with as many measures as fit at natural spacing.
-                chosen = new List<(int Index, double Prefix, double Width, double Stretch, double Slack)>();
+                chosen = new List<MeasureCandidate>();
                 var width = header;
                 foreach (var candidate in segment)
                 {
@@ -696,20 +805,23 @@ public static partial class ScoreLayoutEngine
         // X of every onset: padding, then for each onset its accidental room and its (stretched) space to the next.
         var onsetX = new Dictionary<Rational, double>();
         var preStart = new Dictionary<Rational, double>();
-        var x = contentLeft + MeasureLeftPadding * sp;
+        var unit = plan.Compress * sp;
+        var lead = plan.MinScale < 1 ? measure.HardLead + (measure.Lead - measure.HardLead) * plan.MinScale : measure.Lead;
+        var x = contentLeft + lead * unit;
         for (var i = 0; i < measure.Onsets.Count; i++)
         {
             preStart[measure.Onsets[i]] = x;
-            x += measure.Pre[i] * sp;
+            x += measure.Pre[i] * unit;
             onsetX[measure.Onsets[i]] = x;
+            var (hard, min, natural) = (measure.HardSegments[i], measure.MinSegments[i], measure.Segments[i]);
             x += (plan.SlackScale < 1
-                ? measure.MinSegments[i] + (measure.Segments[i] - measure.MinSegments[i]) * plan.SlackScale
-                : measure.Segments[i] * plan.Scale) * sp;
+                ? hard + (min - hard) * plan.MinScale + (natural - min) * plan.SlackScale
+                : natural * plan.Scale) * unit;
         }
 
         // Chord symbols start at their beat: onsets and the measure's end are the anchors between which beats are placed.
         var anchors = measure.Onsets.Select(t => (t, onsetX[t])).ToList();
-        if (anchors[0].t.Sign > 0) anchors.Insert(0, (Rational.Zero, contentLeft + MeasureLeftPadding * sp));
+        if (anchors[0].t.Sign > 0) anchors.Insert(0, (Rational.Zero, contentLeft + lead * unit));
         anchors.Add((measure.Length, x));
         PlaceChordSymbols(measure, slots, measureIndex, anchors, symbols);
 

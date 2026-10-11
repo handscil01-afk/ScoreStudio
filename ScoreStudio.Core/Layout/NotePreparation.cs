@@ -103,6 +103,18 @@ internal sealed class PreparedMeasure
     /// </summary>
     public required double[] MinSegments { get; init; }
 
+    /// <summary>
+    /// The least each segment takes when even <see cref="MinSegments"/> is too wide for the source's measure width: the
+    /// notes (heads, dots, flags) with a narrow gap, and still the room syllables and chord symbols need.
+    /// </summary>
+    public required double[] HardSegments { get; init; }
+
+    /// <summary>Room from the barline to the first onset's accidentals: the measure's padding, or more for its first syllable.</summary>
+    public double Lead { get; init; } = NotePreparation.MeasureLeftPadding;
+
+    /// <summary><see cref="Lead"/> when the source's measure width leaves no more room (with <see cref="HardSegments"/>).</summary>
+    public double HardLead { get; init; } = NotePreparation.TightLeftPadding;
+
     public bool IsEmpty => Onsets.Count == 0;
 }
 
@@ -117,6 +129,9 @@ internal static class NotePreparation
 
     /// <summary>Space between the barline (or the header) and the first note of a measure, in staff spaces.</summary>
     public const double MeasureLeftPadding = 1.2;
+
+    /// <summary>The padding when the source's measure width leaves no more room (Finale's is about this).</summary>
+    public const double TightLeftPadding = 0.6;
 
     /// <summary>Room for a clef change before a note in mid-measure, in staff spaces.</summary>
     public const double ClefChangeWidth = 2.6;
@@ -471,6 +486,7 @@ internal static class NotePreparation
         var pre = new double[onsets.Count];
         var segments = new double[onsets.Count];
         var minSegments = new double[onsets.Count];
+        var hardSegments = new double[onsets.Count];
         var lyricLeft = new double[onsets.Count];
         var lyricRight = new double[onsets.Count];
         // Latin-script words split over notes need their hyphens to read as one word, so the hyphen gets room. Hangul
@@ -497,9 +513,11 @@ internal static class NotePreparation
                 pre[i] += ClefChangeWidth;
             var next = i + 1 < onsets.Count ? onsets[i + 1] : length;
             var gap = SpaceFor(next - onsets[i]);
-            var needed = atOnset.Select(c => c.XOffset + c.RightExtent + 0.3).DefaultIfEmpty(0).Max();
+            var extent = atOnset.Select(c => c.XOffset + c.RightExtent).DefaultIfEmpty(0).Max();
+            var needed = extent + NoteGap;
             segments[i] = Math.Max(gap, needed);
             minSegments[i] = Math.Max(MinimumGapScale * gap, needed);
+            hardSegments[i] = extent + TightNoteGap;
         }
 
         // A syllable must clear the next syllable, by room for a hyphen inside a word: the gaps between the two onsets,
@@ -507,18 +525,21 @@ internal static class NotePreparation
         // room on its own side, so the last syllable of a measure and the first of the next never meet whatever the
         // neighbouring measure holds.
         double Gap(bool hyphen) => (hyphen ? HyphenatedLyricGap : LyricGap) * lyricSize;
+        var (lead, hardLead) = (MeasureLeftPadding, TightLeftPadding);
         var first = Enumerable.Range(0, onsets.Count).FirstOrDefault(i => lyricRight[i] > 0, -1);
         if (first >= 0)
         {
-            var lead = lyricLeft[first] + Gap(wordCameFrom[first]) / 2 - MeasureLeftPadding;
             if (first == 0)
             {
-                pre[0] = Math.Max(pre[0], lead);
+                lead = Math.Max(lead, lyricLeft[0] + Gap(wordCameFrom[0]) / 2 - pre[0]);
+                hardLead = Math.Max(hardLead, lyricLeft[0] + Gap(false) / 2 - pre[0]);
             }
             else
             {
-                Widen(segments, 0, first, lead);
-                Widen(minSegments, 0, first, lead);
+                var need = lyricLeft[first] + Gap(wordCameFrom[first]) / 2 - MeasureLeftPadding;
+                Widen(segments, 0, first, need);
+                Widen(minSegments, 0, first, need);
+                Widen(hardSegments, 0, first, lyricLeft[first] + Gap(false) / 2 - TightLeftPadding);
             }
         }
 
@@ -530,6 +551,10 @@ internal static class NotePreparation
             var need = lyricRight[i] + (next < onsets.Count ? lyricLeft[next] + Gap(wordGoesOn[i]) : Gap(wordGoesOn[i]) / 2);
             Widen(segments, i, next, need);
             Widen(minSegments, i, next, need);
+
+            // Fitting the source's measure width, syllables of a word may come as close as words (the hyphen then
+            // gives way, like Finale's smart hyphens); they still never meet.
+            Widen(hardSegments, i, next, lyricRight[i] + (next < onsets.Count ? lyricLeft[next] + Gap(false) : Gap(false) / 2));
         }
 
         // Chord symbols of a staff must clear the next symbol (or the barline). They may fall between onsets (a chord
@@ -543,18 +568,34 @@ internal static class NotePreparation
                 var width = TextMetrics.Width(ScoreLayoutEngine.ChordDisplay(ordered[k].Text), lyricSize) + ChordSymbolGap * lyricSize;
                 WidenSpan(segments, onsets, length, Position(ordered[k]), end, width);
                 WidenSpan(minSegments, onsets, length, Position(ordered[k]), end, width);
+                WidenSpan(hardSegments, onsets, length, Position(ordered[k]), end, width);
             }
         }
 
+        // Each widening keeps its own sums, so the tiers are put in order by raising, never by lowering (lowering one gap
+        // would undo the room a syllable got across several).
         for (var i = 0; i < onsets.Count; i++)
-            minSegments[i] = Math.Min(minSegments[i], segments[i]);
+        {
+            minSegments[i] = Math.Max(minSegments[i], hardSegments[i]);
+            segments[i] = Math.Max(segments[i], minSegments[i]);
+        }
 
         return new PreparedMeasure
         {
             Chords = chords, Beams = beams, MidMeasureClefs = clefsAtOnsets, Onsets = onsets, Pre = pre, Segments = segments, MinSegments = minSegments,
+            HardSegments = hardSegments, Lead = lead, HardLead = hardLead,
             ChordSymbols = chordSymbols, Length = length,
         };
     }
+
+    /// <summary>Least room after a note's head, dots and flag before the next note, in staff spaces.</summary>
+    private const double NoteGap = 0.3;
+
+    /// <summary>
+    /// Least room after a note when the source's measure width leaves no more (Finale sets fast notes this close); the
+    /// notes still do not touch.
+    /// </summary>
+    private const double TightNoteGap = 0.15;
 
     /// <summary>
     /// How far a gap between notes may shrink to keep the source file's line breaks (e.g. Finale's layout), as a factor

@@ -9,7 +9,7 @@ namespace ScoreStudio.Models;
 public sealed class ScoreProject
 {
     /// <summary>The project file schema version this build reads and writes.</summary>
-    public const int CurrentSchemaVersion = 13;
+    public const int CurrentSchemaVersion = 14;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string Title { get; set; } = "새 악보";
@@ -184,6 +184,12 @@ public sealed class ScoreMeasure
 
     /// <summary>A new page starts with this measure.</summary>
     public bool PageBreak { get; set; }
+
+    /// <summary>
+    /// Width of the measure in the source's layout (Finale's measure width), in staff spaces; at the start of a system
+    /// it includes the clef, key and time signature. Null when the source gives none.
+    /// </summary>
+    public double? SourceWidth { get; set; }
 }
 
 public sealed class ScoreClefChange

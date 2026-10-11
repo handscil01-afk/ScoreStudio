@@ -466,6 +466,10 @@ public static class MusicXmlImporter
                 Warn("숫자가 아닌 마디 번호는 순서 번호로 바꿈");
 
             var measure = new ScoreMeasure { Number = number, Numerator = _numerator, Denominator = _denominator, KeyFifths = _keyFifths };
+            // The measure's width in the source's layout, in tenths of a staff space.
+            if (double.TryParse((string?)element.Attribute("width"), NumberStyles.Float, CultureInfo.InvariantCulture, out var width)
+                && width > 0 && width / 10 <= ProjectFileService.MaxLayoutDistance)
+                measure.SourceWidth = width / 10;
             var cursor = Rational.Zero;
             var lastStart = Rational.Zero;
             var end = Rational.Zero;

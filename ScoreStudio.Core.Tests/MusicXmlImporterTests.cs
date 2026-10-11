@@ -328,6 +328,25 @@ public sealed class MusicXmlImporterTests : IDisposable
     }
 
     [Theory]
+    [InlineData("312.5", 31.25)]
+    [InlineData("0", null)]
+    [InlineData("-40", null)]
+    [InlineData("2500", null)]
+    [InlineData("wide", null)]
+    public void MeasureWidth_IsKeptInStaffSpaces(string width, double? expected)
+    {
+        var xml = $"""
+            <score-partwise version="4.0">
+              <part-list><score-part id="P1"><part-name>S</part-name></score-part></part-list>
+              <part id="P1"><measure number="1" width="{width}"><attributes><divisions>1</divisions></attributes>
+                <note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><type>whole</type></note></measure></part>
+            </score-partwise>
+            """;
+
+        Assert.Equal(expected, MusicXmlImporter.ImportXml(xml, "width").Project.Parts[0].Measures[0].SourceWidth);
+    }
+
+    [Theory]
     [InlineData("Times New Roman", "Times New Roman")]
     [InlineData("'Adobe Garamond Pro', serif", "Adobe Garamond Pro")]
     [InlineData(" ", null)]
