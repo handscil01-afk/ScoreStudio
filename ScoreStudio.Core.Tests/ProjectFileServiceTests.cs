@@ -235,6 +235,37 @@ public sealed class ProjectFileServiceTests : IDisposable
     }
 
     [Fact]
+    public void Load_Version7File_HasNoSourceLayout()
+    {
+        var project = ProjectFileService.Parse("""{ "SchemaVersion": 7, "Parts": [ { "Measures": [ {} ] } ] }""");
+
+        Assert.Null(project.Engraving);
+        var measure = project.Parts[0].Measures[0];
+        Assert.Equal((null, null), (measure.SystemDistance, measure.TopSystemDistance));
+        Assert.Empty(measure.StaffDistances);
+    }
+
+    [Fact]
+    public void SaveThenLoad_PreservesSourceLayout()
+    {
+        var project = ScoreProject.CreateNew();
+        project.Engraving = new ScoreEngraving { StaffSpace = 1.98, MarginLeft = 20, MarginRight = 21, MarginTop = 22, MarginBottom = 23, SystemDistance = 7.2, TopSystemDistance = 3.3, StaffDistance = 8 };
+        var measure = project.Parts[0].Measures[1];
+        (measure.SystemDistance, measure.TopSystemDistance) = (17.4, 31.3);
+        measure.StaffDistances.Add(new ScoreStaffDistance { Staff = 0, Distance = 14.5 });
+        var path = PathFor("layout7.scoreproj");
+
+        ProjectFileService.Save(path, project);
+        var loaded = ProjectFileService.Load(path);
+
+        var e = loaded.Engraving!;
+        Assert.Equal((1.98, 20.0, 21.0, 22.0, 23.0, 7.2, 3.3, 8.0),
+            (e.StaffSpace, e.MarginLeft, e.MarginRight, e.MarginTop, e.MarginBottom, e.SystemDistance, e.TopSystemDistance, e.StaffDistance));
+        var m = loaded.Parts[0].Measures[1];
+        Assert.Equal((17.4, 31.3, 14.5), (m.SystemDistance, m.TopSystemDistance, m.StaffDistances.Single().Distance));
+    }
+
+    [Fact]
     public void SaveThenLoad_PreservesPartGroupsAndHiddenNames()
     {
         var project = ScoreProject.CreateNew();
@@ -341,6 +372,11 @@ public sealed class ProjectFileServiceTests : IDisposable
         { """{ "SchemaVersion": 7, "Parts": [ {}, {} ], "PartGroups": [ { "FirstPart": 1, "LastPart": 0 } ] }""", "1번째 파트 묶음" },
         { """{ "SchemaVersion": 7, "Parts": [ {} ], "PartGroups": [ null ] }""", "1번째 파트 묶음" },
         { """{ "SchemaVersion": 7, "Parts": [ {} ], "PartGroups": [ { "Symbol": "Curly" } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
+        { """{ "SchemaVersion": 8, "Engraving": { "StaffSpace": 0 } }""", "페이지 배치 정보" },
+        { """{ "SchemaVersion": 8, "Engraving": { "MarginTop": -1 } }""", "페이지 배치 정보" },
+        { """{ "SchemaVersion": 8, "Engraving": { "SystemDistance": 500 } }""", "페이지 배치 정보" },
+        { """{ "SchemaVersion": 8, "Parts": [ { "Measures": [ { "SystemDistance": -3 } ] } ] }""", "줄·보표 간격" },
+        { """{ "SchemaVersion": 8, "Parts": [ { "Measures": [ { "StaffDistances": [ { "Staff": 1, "Distance": 9 } ] } ] } ] }""", "줄·보표 간격" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": "Percussion" } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
         { """{ "SchemaVersion": 2, "Parts": [ { "Staves": [ { "Clef": 7 } ] } ] }""", "손상되었거나 형식이 올바르지 않습니다" },
     };

@@ -163,6 +163,7 @@ public sealed class NoteLayoutTests
     [InlineData("layout-features.musicxml")]
     [InlineData("beams.musicxml")]
     [InlineData("part-groups.musicxml")]
+    [InlineData("page-layout.musicxml")]
     public void EveryImportedNoteGetsAHead_AndEveryRestAGlyph(string file)
     {
         var project = MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", file)).Project;
@@ -358,6 +359,33 @@ public sealed class NoteLayoutTests
     }
 
     [Fact]
+    public void SourceLayout_PlacesStavesAndSystemsAtTheSourceDistances()
+    {
+        var project = MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", "page-layout.musicxml")).Project;
+        var layout = ScoreLayoutEngine.Layout(project);
+        const double sp = 7.9551 / 4;           // the source's staff space in mm
+        const double margin = 101 * sp / 10;    // 101 tenths
+
+        Assert.Equal(2, layout.Pages.Count);
+        var (first, second) = (layout.Pages[0].Systems[0], layout.Pages[0].Systems[1]);
+        var third = layout.Pages[1].Systems.Single();
+
+        // Page 1: the first system 31.3 spaces below the top margin; its staves 8 spaces apart (the default).
+        Assert.Equal(margin + 31.3 * sp, first.Staves[0].Top, 6);
+        Assert.Equal(first.Staves[0].Top + (4 + 8) * sp, first.Staves[1].Top, 6);
+
+        // The second system 17.4 spaces below the first; its lower staff 14.5 spaces below the upper one.
+        Assert.Equal(first.Staves[1].Top + 4 * sp + 17.4 * sp, second.Staves[0].Top, 6);
+        Assert.Equal(second.Staves[0].Top + (4 + 14.5) * sp, second.Staves[1].Top, 6);
+
+        // Page 2: 10 spaces below the top margin. Staff lines are one source staff space apart; margins are the source's.
+        Assert.Equal(margin + 10 * sp, third.Staves[0].Top, 6);
+        var staffLines = layout.Pages[0].Items.OfType<LineItem>().Where(l => l.Y1 == l.Y2 && l.X2 - l.X1 > 50).Select(l => l.Y1).Order().Take(2).ToList();
+        Assert.Equal(sp, staffLines[1] - staffLines[0], 6);
+        Assert.Equal((margin, layout.Pages[0].Width - margin), (first.Left, first.Right));
+    }
+
+    [Fact]
     public void PartGroups_DrawABracketAndJoinedBarlines_AndHiddenNamesStayHidden()
     {
         var project = MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", "part-groups.musicxml")).Project;
@@ -401,6 +429,25 @@ public sealed class NoteLayoutTests
         }
 
         return data;
+    }
+
+    /// <summary>
+    /// When the source sets the page layout, its page breaks decide the pages: ScoreStudio never needs a page of its
+    /// own, so the score fits as it did in the source program.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllScores))]
+    public void WithTheSourceLayout_PagesFollowTheSourcePageBreaks_InEveryScore(string file)
+    {
+        var project = MusicXmlImporter.ImportFile(file).Project;
+        if (project.Engraving is null) return;
+
+        var sourcePages = 1 + Enumerable.Range(1, project.Parts.Max(p => p.Measures.Count) - 1)
+            .Count(m => project.Parts.Any(p => m < p.Measures.Count && p.Measures[m].PageBreak));
+        var layout = ScoreLayoutEngine.Layout(project);
+
+        Assert.Equal(sourcePages, layout.Pages.Count);
+        Assert.All(layout.Pages.SelectMany(p => p.Systems), s => Assert.True(s.Bottom <= layout.Pages[0].Height - project.Engraving.MarginBottom + 1e-6));
     }
 
     /// <summary>Rules that hold for any score: beamed stems end exactly on their beam and carry no flag.</summary>

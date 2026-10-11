@@ -137,6 +137,7 @@ public sealed class PageRenderingTests
     [InlineData("layout-features")]
     [InlineData("beams")]
     [InlineData("part-groups")]
+    [InlineData("page-layout")]
     public void ImportedMusicXml_DrawsClefsAndNoteheadsWhereTheLayoutPutsThem(string sample)
     {
         RunSta(() =>

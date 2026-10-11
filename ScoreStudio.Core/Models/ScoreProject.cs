@@ -9,7 +9,7 @@ namespace ScoreStudio.Models;
 public sealed class ScoreProject
 {
     /// <summary>The project file schema version this build reads and writes.</summary>
-    public const int CurrentSchemaVersion = 7;
+    public const int CurrentSchemaVersion = 8;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string Title { get; set; } = "새 악보";
@@ -23,6 +23,9 @@ public sealed class ScoreProject
 
     /// <summary>Parts joined at the left of each system by a bracket or brace, and optionally by their barlines.</summary>
     public List<ScorePartGroup> PartGroups { get; set; } = new();
+
+    /// <summary>Staff size, margins and spacing taken from the source (e.g. Finale's page layout); null uses defaults.</summary>
+    public ScoreEngraving? Engraving { get; set; }
 
     public static ScoreProject CreateNew() => new()
     {
@@ -51,6 +54,39 @@ public sealed class ScorePart
     public List<ScoreStaff> Staves { get; set; } = new() { new() };
 
     public List<ScoreMeasure> Measures { get; set; } = new();
+}
+
+/// <summary>
+/// Page formatting from the source file. Distances between staves and systems are in staff spaces, so they scale with
+/// the staff size; the staff size and margins are in millimetres.
+/// </summary>
+public sealed class ScoreEngraving
+{
+    /// <summary>Distance between two staff lines, in millimetres.</summary>
+    public double StaffSpace { get; set; } = 1.75;
+
+    public double MarginLeft { get; set; } = 15;
+    public double MarginRight { get; set; } = 15;
+    public double MarginTop { get; set; } = 15;
+    public double MarginBottom { get; set; } = 15;
+
+    /// <summary>From the bottom line of one system to the top line of the next, unless a system says otherwise.</summary>
+    public double SystemDistance { get; set; } = 10;
+
+    /// <summary>From the top margin to the top line of a page's first system, unless a system says otherwise.</summary>
+    public double TopSystemDistance { get; set; }
+
+    /// <summary>From the bottom line of one staff to the top line of the next within a system, unless a system says otherwise.</summary>
+    public double StaffDistance { get; set; } = 8;
+}
+
+/// <summary>A staff's distance from the staff above it in the system that starts at this measure.</summary>
+public sealed class ScoreStaffDistance
+{
+    public int Staff { get; set; }
+
+    /// <summary>In staff spaces, from the bottom line of the staff above to this staff's top line.</summary>
+    public double Distance { get; set; }
 }
 
 /// <summary>Consecutive parts grouped on the score, e.g. the choir parts of an anthem.</summary>
@@ -124,6 +160,15 @@ public sealed class ScoreMeasure
 
     /// <summary>Staves of the part (indices from 0) that are hidden in this measure, as in Finale's hidden empty staves.</summary>
     public List<int> HiddenStaves { get; set; } = new();
+
+    /// <summary>When a system starts here: distance from the previous system, in staff spaces (source layout).</summary>
+    public double? SystemDistance { get; set; }
+
+    /// <summary>When a page starts here: distance of the first system from the top margin, in staff spaces.</summary>
+    public double? TopSystemDistance { get; set; }
+
+    /// <summary>When a system starts here: distances of this part's staves from the staff above (source layout).</summary>
+    public List<ScoreStaffDistance> StaffDistances { get; set; } = new();
 
     /// <summary>A new system starts with this measure (a line break taken from the source file).</summary>
     public bool SystemBreak { get; set; }

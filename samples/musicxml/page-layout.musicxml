@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<!-- ScoreStudio sample: Finale's page layout. A larger staff (40 tenths = 7.9551 mm), 20 mm margins, default system and
+     staff distances, and per-system values: the first system 313 tenths below the top margin, the second 174 tenths
+     below the first with its lower staff 145 tenths down, and a new page whose system sits 100 tenths down.
+     Written for ScoreStudio tests. -->
+<score-partwise version="4.0">
+  <work><work-title>페이지 배치 시험</work-title></work>
+  <defaults>
+    <scaling><millimeters>7.9551</millimeters><tenths>40</tenths></scaling>
+    <page-layout>
+      <page-height>1494</page-height>
+      <page-width>1056</page-width>
+      <page-margins type="both">
+        <left-margin>101</left-margin><right-margin>101</right-margin>
+        <top-margin>101</top-margin><bottom-margin>101</bottom-margin>
+      </page-margins>
+    </page-layout>
+    <system-layout>
+      <system-margins><left-margin>0</left-margin><right-margin>0</right-margin></system-margins>
+      <system-distance>72</system-distance>
+      <top-system-distance>33</top-system-distance>
+    </system-layout>
+    <staff-layout><staff-distance>80</staff-distance></staff-layout>
+  </defaults>
+  <part-list>
+    <score-part id="P1"><part-name print-object="no">MusicXML Part</part-name></score-part>
+    <score-part id="P2"><part-name print-object="no">MusicXML Part</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <print page-number="1"><system-layout><top-system-distance>313</top-system-distance></system-layout></print>
+      <attributes>
+        <divisions>1</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+    <measure number="2">
+      <print new-system="yes"><system-layout><system-distance>174</system-distance></system-layout></print>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+    <measure number="3">
+      <print new-page="yes" page-number="2"><system-layout><top-system-distance>100</top-system-distance></system-layout></print>
+      <note><pitch><step>E</step><octave>5</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type></note>
+      <barline location="right"><bar-style>light-heavy</bar-style></barline>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="1">
+      <print/>
+      <attributes>
+        <divisions>1</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>F</sign><line>4</line></clef>
+      </attributes>
+      <note><pitch><step>C</step><octave>3</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+    <measure number="2">
+      <print new-system="yes"><staff-layout number="1"><staff-distance>145</staff-distance></staff-layout></print>
+      <note><pitch><step>D</step><octave>3</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type></note>
+    </measure>
+    <measure number="3">
+      <print new-page="yes"/>
+      <note><pitch><step>E</step><octave>3</octave></pitch><duration>4</duration><voice>1</voice><type>whole</type></note>
+      <barline location="right"><bar-style>light-heavy</bar-style></barline>
+    </measure>
+  </part>
+</score-partwise>

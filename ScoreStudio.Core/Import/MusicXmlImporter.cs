@@ -176,6 +176,7 @@ public static class MusicXmlImporter
         }
 
         project.PartGroups = ReadPartGroups(root.Element("part-list"), partIds, warnings);
+        ReadEngraving(root.Element("defaults"), project, warnings);
 
         foreach (var orphan in partList.Values)
             warnings.Add("파트 목록에만 있고 내용이 없는 파트는 가져오지 않음", FirstText(orphan.Element("part-name")) ?? (string?)orphan.Attribute("id") ?? "");
@@ -224,6 +225,64 @@ public static class MusicXmlImporter
 
         var name = FirstText(scorePart.Element("part-name"));
         return name is null || string.Equals(name, FinalePlaceholderName, StringComparison.OrdinalIgnoreCase) ? null : name;
+    }
+
+    /// <summary>A layout distance in tenths of a staff space; null when missing or outside 0–2000 (ten staves or so).</summary>
+    private static double? Tenths(XElement? element) =>
+        double.TryParse(element?.Value.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && value is >= 0 and <= 2000
+            ? value
+            : null;
+
+    /// <summary>
+    /// Page size, margins, staff size and default spacing from &lt;defaults&gt;. Without &lt;scaling&gt; the layout keeps
+    /// ScoreStudio's defaults. Page sizes other than A4 and Letter are shown on A4.
+    /// </summary>
+    private static void ReadEngraving(XElement? defaults, ScoreProject project, ImportWarningCollector warnings)
+    {
+        var scaling = defaults?.Element("scaling");
+        if (!double.TryParse(scaling?.Element("millimeters")?.Value.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var millimeters)
+            || !double.TryParse(scaling?.Element("tenths")?.Value.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var tenths)
+            || millimeters <= 0 || tenths <= 0)
+            return;
+
+        var mmPerTenth = millimeters / tenths;
+        var engraving = new ScoreEngraving { StaffSpace = mmPerTenth * 10 };
+        if (engraving.StaffSpace is < 0.5 or > 5)
+        {
+            warnings.Add("원본의 보표 크기를 쓸 수 없어 기본 배치로 표시함", "악보 설정");
+            return;
+        }
+
+        var page = defaults!.Element("page-layout");
+        if (Tenths(page?.Element("page-width")) is { } width && Tenths(page?.Element("page-height")) is { } height)
+        {
+            var (w, h) = (width * mmPerTenth, height * mmPerTenth);
+            var (shortSide, longSide) = (Math.Min(w, h), Math.Max(w, h));
+            project.Orientation = w > h ? "Landscape" : "Portrait";
+            if (Math.Abs(shortSide - 215.9) < 3 && Math.Abs(longSide - 279.4) < 3) project.PageSize = "Letter";
+            else
+            {
+                project.PageSize = "A4";
+                if (Math.Abs(shortSide - 210) >= 3 || Math.Abs(longSide - 297) >= 3)
+                    warnings.Add($"지원하지 않는 용지 크기({w:0}×{h:0}mm)는 A4로 표시함", "악보 설정");
+            }
+        }
+
+        var margins = page?.Elements("page-margins").OrderBy(m => (string?)m.Attribute("type") switch { "both" => 0, "odd" => 1, _ => 2 }).FirstOrDefault();
+        double Margin(string name, double fallback) =>
+            Tenths(margins?.Element(name)) is { } t && t * mmPerTenth <= 100 ? t * mmPerTenth : fallback;
+        engraving.MarginLeft = Margin("left-margin", engraving.MarginLeft);
+        engraving.MarginRight = Margin("right-margin", engraving.MarginRight);
+        engraving.MarginTop = Margin("top-margin", engraving.MarginTop);
+        engraving.MarginBottom = Margin("bottom-margin", engraving.MarginBottom);
+
+        var system = defaults.Element("system-layout");
+        if (Tenths(system?.Element("system-distance")) is { } systemDistance) engraving.SystemDistance = systemDistance / 10;
+        if (Tenths(system?.Element("top-system-distance")) is { } topDistance) engraving.TopSystemDistance = topDistance / 10;
+        var staffLayout = defaults.Elements("staff-layout").FirstOrDefault(s => (string?)s.Attribute("number") is null or "1");
+        if (Tenths(staffLayout?.Element("staff-distance")) is { } staffDistance) engraving.StaffDistance = staffDistance / 10;
+
+        project.Engraving = engraving;
     }
 
     /// <summary>Finale hides part names with print-object="no" on part-name (or on part-name-display).</summary>
@@ -372,7 +431,10 @@ public static class MusicXmlImporter
 
             ApplyOctaveShifts(measures);
             foreach (var measure in measures)
+            {
                 measure.HiddenStaves.RemoveAll(s => s >= _staves);
+                measure.StaffDistances.RemoveAll(d => d.Staff >= _staves);
+            }
 
             var staves = Enumerable.Range(1, _staves)
                 .Select(n => new ScoreStaff { Clef = _clefs.TryGetValue(n, out var clef) ? clef : n == 2 ? ClefType.Bass : ClefType.Treble })
@@ -411,6 +473,7 @@ public static class MusicXmlImporter
                             measure.SystemBreak = true;
                         if (index > 0 && (string?)child.Attribute("new-page") == "yes")
                             measure.PageBreak = true;
+                        ReadPrintLayout(child, measure);
                         break;
                     case "note":
                         ReadNote(child, measure, ref cursor, ref lastStart);
@@ -613,6 +676,28 @@ public static class MusicXmlImporter
             var change = new ScoreClefChange { Staff = staff - 1, Clef = type.Value };
             if (TrySetFraction(cursor, (n, d) => (change.PositionNumerator, change.PositionDenominator) = (n, d)))
                 measure.ClefChanges.Add(change);
+        }
+
+        /// <summary>
+        /// Spacing the source chose for the system (or page) that starts here, in tenths of a staff space: the distance
+        /// from the previous system or the top margin, and each staff's distance from the staff above. Staff numbers
+        /// beyond the part's staves are dropped once the part is read (a print may come before &lt;staves&gt;).
+        /// </summary>
+        private static void ReadPrintLayout(XElement print, ScoreMeasure measure)
+        {
+            var system = print.Element("system-layout");
+            if (Tenths(system?.Element("system-distance")) is { } distance) measure.SystemDistance = distance / 10;
+            if (Tenths(system?.Element("top-system-distance")) is { } top) measure.TopSystemDistance = top / 10;
+
+            foreach (var staffLayout in print.Elements("staff-layout"))
+            {
+                var number = int.TryParse((string?)staffLayout.Attribute("number"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) ? n : 1;
+                if (number >= 1 && Tenths(staffLayout.Element("staff-distance")) is { } staffDistance)
+                {
+                    measure.StaffDistances.RemoveAll(d => d.Staff == number - 1);
+                    measure.StaffDistances.Add(new ScoreStaffDistance { Staff = number - 1, Distance = staffDistance / 10 });
+                }
+            }
         }
 
         /// <summary>

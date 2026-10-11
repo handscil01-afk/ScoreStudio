@@ -145,6 +145,7 @@ public sealed class MusicXmlImporterTests : IDisposable
     [InlineData("layout-features.musicxml")]
     [InlineData("beams.musicxml")]
     [InlineData("part-groups.musicxml")]
+    [InlineData("page-layout.musicxml")]
     public void ImportedCounts_MatchCountsTakenDirectlyFromTheSource(string file)
     {
         var source = XDocument.Load(Sample(file));
@@ -272,6 +273,60 @@ public sealed class MusicXmlImporterTests : IDisposable
 
         Assert.Equal(new[] { 3, 5 }, melody.Measures.Where(m => m.SystemBreak).Select(m => m.Number));
         Assert.Equal(new[] { 5 }, melody.Measures.Where(m => m.PageBreak).Select(m => m.Number));
+    }
+
+    [Fact]
+    public void PageLayout_StaffSizeMarginsAndDistancesMatchTheSource()
+    {
+        var result = MusicXmlImporter.ImportFile(Sample("page-layout.musicxml"));
+        var project = result.Project;
+        var engraving = project.Engraving!;
+        const double mmPerTenth = 7.9551 / 40;
+
+        Assert.Empty(result.Warnings);
+        Assert.Equal(("A4", "Portrait"), (project.PageSize, project.Orientation));
+        Assert.Equal(10 * mmPerTenth, engraving.StaffSpace, 9);
+        Assert.All(new[] { engraving.MarginLeft, engraving.MarginRight, engraving.MarginTop, engraving.MarginBottom },
+            m => Assert.Equal(101 * mmPerTenth, m, 9));
+        Assert.Equal((7.2, 3.3, 8.0), (engraving.SystemDistance, engraving.TopSystemDistance, engraving.StaffDistance));
+
+        // Per-system values, in staff spaces, stored on the measure that starts the system.
+        var (upper, lower) = (project.Parts[0].Measures, project.Parts[1].Measures);
+        Assert.Equal(new double?[] { 31.3, null, 10 }, upper.Select(m => m.TopSystemDistance));
+        Assert.Equal(new double?[] { null, 17.4, null }, upper.Select(m => m.SystemDistance));
+        Assert.Equal("0:14.5", string.Join(";", lower[1].StaffDistances.Select(d => $"{d.Staff}:{d.Distance}")));
+        Assert.All(upper.Concat(lower).Where(m => m != lower[1]), m => Assert.Empty(m.StaffDistances));
+    }
+
+    [Theory]
+    [InlineData(1100, 1405, "Letter", "Portrait", null)]
+    [InlineData(1405, 1100, "Letter", "Landscape", null)]
+    [InlineData(1056, 1494, "A4", "Portrait", null)]
+    [InlineData(1290, 1820, "A4", "Portrait", "지원하지 않는 용지 크기(257×362mm)는 A4로 표시함")]
+    public void PageSize_IsTakenFromTheSourcePage(int width, int height, string size, string orientation, string? warning)
+    {
+        var xml = $"""
+            <score-partwise>
+              <defaults><scaling><millimeters>7.9551</millimeters><tenths>40</tenths></scaling>
+                <page-layout><page-height>{height}</page-height><page-width>{width}</page-width></page-layout></defaults>
+              <part-list><score-part id="P1"><part-name>A</part-name></score-part></part-list>
+              <part id="P1"><measure number="1"/></part>
+            </score-partwise>
+            """;
+
+        var result = MusicXmlImporter.ImportXml(xml, "page");
+
+        Assert.Equal((size, orientation), (result.Project.PageSize, result.Project.Orientation));
+        Assert.Equal(warning, result.Warnings.SingleOrDefault()?.Message);
+    }
+
+    [Fact]
+    public void WithoutScaling_TheProjectKeepsDefaultLayout()
+    {
+        var project = MusicXmlImporter.ImportFile(Sample("simple-melody.musicxml")).Project;
+
+        Assert.Null(project.Engraving);
+        Assert.Equal(("A4", "Portrait"), (project.PageSize, project.Orientation));
     }
 
     [Fact]
@@ -545,6 +600,7 @@ public sealed class MusicXmlImporterTests : IDisposable
     [InlineData("layout-features.musicxml")]
     [InlineData("beams.musicxml")]
     [InlineData("part-groups.musicxml")]
+    [InlineData("page-layout.musicxml")]
     public void ImportedProject_SurvivesSaveAndReopen(string file)
     {
         var imported = MusicXmlImporter.ImportFile(Sample(file)).Project;

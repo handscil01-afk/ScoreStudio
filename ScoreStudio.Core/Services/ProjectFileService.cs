@@ -132,10 +132,15 @@ public static class ProjectFileService
         // Older files lack newer fields (version 1: staves; version 2: key, staff, voice; version 3: repeats, voltas,
         // chord symbols, all lyric verses, ties; version 4: clef changes, hidden staves, breaks, octave lines;
         // version 5: beams, so older files show flags until the score is imported again; version 6: hidden part names
-        // and part groups).
+        // and part groups; version 7: source page layout).
         // Validate and the model defaults fill them in, and a version 1–3 "Lyric" becomes verse 1.
         // Saving always writes the current version.
     }
+
+    /// <summary>Largest distance between staves or systems, in staff spaces (well over a page).</summary>
+    private const double MaxDistance = 200;
+
+    private static bool InRange(double value, double min, double max) => value >= min && value <= max;
 
     /// <summary>Beams for notes down to 256ths: more levels than that do not exist in notation.</summary>
     private const int MaxBeamLevels = 6;
@@ -149,6 +154,13 @@ public static class ProjectFileService
         project.Orientation ??= "Portrait";
         project.Parts ??= new List<ScorePart>();
         project.PartGroups ??= new List<ScorePartGroup>();
+        if (project.Engraving is { } engraving
+            && (!InRange(engraving.StaffSpace, 0.5, 5) || !InRange(engraving.MarginLeft, 0, 100) || !InRange(engraving.MarginRight, 0, 100)
+                || !InRange(engraving.MarginTop, 0, 100) || !InRange(engraving.MarginBottom, 0, 100)
+                || !InRange(engraving.SystemDistance, 0, MaxDistance) || !InRange(engraving.TopSystemDistance, 0, MaxDistance)
+                || !InRange(engraving.StaffDistance, 0, MaxDistance)))
+            throw Corrupt("페이지 배치 정보(보표 크기, 여백, 간격)가 올바르지 않습니다.");
+
         for (var g = 0; g < project.PartGroups.Count; g++)
         {
             var group = project.PartGroups[g];
@@ -213,6 +225,12 @@ public static class ProjectFileService
                         || change.PositionNumerator < 0 || change.PositionDenominator <= 0)
                         throw Corrupt($"{where}의 음자리표 변경 정보가 올바르지 않습니다.");
                 }
+
+                measure.StaffDistances ??= new List<ScoreStaffDistance>();
+                if ((measure.SystemDistance is { } systemDistance && !InRange(systemDistance, 0, MaxDistance))
+                    || (measure.TopSystemDistance is { } topDistance && !InRange(topDistance, 0, MaxDistance))
+                    || measure.StaffDistances.Any(d => d is null || d.Staff < 0 || d.Staff >= part.Staves.Count || !InRange(d.Distance, 0, MaxDistance)))
+                    throw Corrupt($"{where}의 줄·보표 간격 정보가 올바르지 않습니다.");
 
                 measure.HiddenStaves ??= new List<int>();
                 if (measure.HiddenStaves.Any(s => s < 0 || s >= part.Staves.Count))

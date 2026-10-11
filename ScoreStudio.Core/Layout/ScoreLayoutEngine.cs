@@ -8,8 +8,18 @@ public sealed class LayoutOptions
     /// <summary>Distance between two staff lines, in millimetres. Five lines span four staff spaces.</summary>
     public double StaffSpace { get; init; } = 1.75;
 
-    /// <summary>Page margin on every side, in millimetres.</summary>
+    /// <summary>Page margin on every side, in millimetres, unless a side is set on its own below.</summary>
     public double Margin { get; init; } = 15;
+
+    public double? MarginLeft { get; init; }
+    public double? MarginRight { get; init; }
+    public double? MarginTop { get; init; }
+    public double? MarginBottom { get; init; }
+
+    internal double Left => MarginLeft ?? Margin;
+    internal double Right => MarginRight ?? Margin;
+    internal double Top => MarginTop ?? Margin;
+    internal double Bottom => MarginBottom ?? Margin;
 
     /// <summary>Width of a measure that has no notes or rests at all, in staff spaces.</summary>
     public double MeasureMinWidth { get; init; } = 20;
@@ -88,12 +98,20 @@ public static class ScoreLayoutEngine
     public static ScoreLayout Layout(ScoreProject project, LayoutOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(project);
-        options ??= new LayoutOptions();
+        var engraving = project.Engraving;
+        options ??= engraving is null
+            ? new LayoutOptions()
+            : new LayoutOptions
+            {
+                StaffSpace = engraving.StaffSpace,
+                MarginLeft = engraving.MarginLeft, MarginRight = engraving.MarginRight,
+                MarginTop = engraving.MarginTop, MarginBottom = engraving.MarginBottom,
+            };
         var sp = options.StaffSpace;
         var (pageWidth, pageHeight) = PageSizes.Get(project.PageSize, project.Orientation);
-        var contentLeft = options.Margin;
-        var contentRight = pageWidth - options.Margin;
-        var contentBottom = pageHeight - options.Margin;
+        var contentLeft = options.Left;
+        var contentRight = pageWidth - options.Right;
+        var contentBottom = pageHeight - options.Bottom;
 
         var pages = new List<PageLayout>();
         var page = NewPage(pages, pageWidth, pageHeight, options);
@@ -112,21 +130,38 @@ public static class ScoreLayoutEngine
         var nameIndent = PartNameIndent(project);
         var planned = PlanSystems(measures, prepared, allSlots, contentLeft, contentRight, nameIndent, options);
 
+        var titleBottom = y;
+        var previousBottom = double.NaN;
         for (var i = 0; i < planned.Count; i++)
         {
             // Staves hidden throughout a system (Finale's hidden empty staves) are left out of it.
+            var first = planned[i].MeasureCount > 0 ? planned[i].FirstMeasure : -1;
             var slots = VisibleSlots(project, planned[i], options) is { Count: > 0 } visible ? visible : allSlots;
             var systemHeight = slots[^1].Offset + 4 * sp;
-            var pageBreak = planned[i].MeasureCount > 0 && measures[planned[i].FirstMeasure].PageBreak;
-            if ((y + systemHeight > contentBottom || pageBreak) && page.Systems.Count > 0)
+            var pageBreak = first >= 0 && measures[first].PageBreak;
+
+            // With the source's layout, systems keep the source's distances; otherwise they follow one after another.
+            var top = page.Systems.Count == 0 ? FirstSystemTop() : previousBottom + SystemDistance() * sp;
+            if ((top + systemHeight > contentBottom || pageBreak) && page.Systems.Count > 0)
             {
                 page = NewPage(pages, pageWidth, pageHeight, options);
-                y = options.Margin;
+                top = FirstSystemTop();
             }
 
-            var system = DrawSystem(page, project, planned[i], i == 0, i == planned.Count - 1, slots, clefs, measures, prepared, y, options);
+            var system = DrawSystem(page, project, planned[i], i == 0, i == planned.Count - 1, slots, clefs, measures, prepared, top, options);
             page.Systems.Add(system);
-            y += systemHeight + options.SystemGap * sp;
+            previousBottom = top + systemHeight;
+
+            double FirstSystemTop()
+            {
+                var below = pages.Count == 1 ? titleBottom : options.Top;
+                if (engraving is null) return below;
+                var distance = SourceValue(project, first, m => m.TopSystemDistance) ?? engraving.TopSystemDistance;
+                return Math.Max(below, options.Top + distance * sp);
+            }
+
+            double SystemDistance() =>
+                engraving is null ? options.SystemGap : SourceValue(project, first, m => m.SystemDistance) ?? engraving.SystemDistance;
         }
 
         return new ScoreLayout { Pages = pages };
@@ -137,7 +172,7 @@ public static class ScoreLayoutEngine
         var page = new PageLayout { Number = pages.Count + 1, Width = width, Height = height };
         if (page.Number > 1)
             page.Items.Add(new TextItem(page.Number.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                width - options.Margin, options.Margin / 2 + PageNumberSize / 2, PageNumberSize, TextAnchor.End));
+                width - options.Right, options.Top / 2 + PageNumberSize / 2, PageNumberSize, TextAnchor.End));
         pages.Add(page);
         return page;
     }
@@ -145,7 +180,7 @@ public static class ScoreLayoutEngine
     /// <summary>Draws title and composer on the first page and returns where the first system may start.</summary>
     private static double DrawTitle(PageLayout page, ScoreProject project, LayoutOptions options)
     {
-        var y = options.Margin;
+        var y = options.Top;
         var hasTitle = !string.IsNullOrWhiteSpace(project.Title);
         var hasComposer = !string.IsNullOrWhiteSpace(project.Composer);
 
@@ -163,14 +198,18 @@ public static class ScoreLayoutEngine
             for (var i = 0; i < lines.Count; i++)
             {
                 if (i > 0) y += ComposerSize * 1.4;
-                page.Items.Add(new TextItem(lines[i], page.Width - options.Margin, y, ComposerSize, TextAnchor.End));
+                page.Items.Add(new TextItem(lines[i], page.Width - options.Right, y, ComposerSize, TextAnchor.End));
             }
         }
 
         return hasTitle || hasComposer ? y + 12 : y;
     }
 
-    private static List<StaffSlot> BuildStaffSlots(ScoreProject project, LayoutOptions options, Func<int, int, bool>? isVisible)
+    /// <summary>
+    /// Staves top to bottom with their offsets from the system's top line. With the source's layout each staff keeps its
+    /// distance from the staff above as given for the system starting at <paramref name="systemStart"/>.
+    /// </summary>
+    private static List<StaffSlot> BuildStaffSlots(ScoreProject project, LayoutOptions options, Func<int, int, bool>? isVisible, int systemStart = -1)
     {
         var slots = new List<StaffSlot>();
         var offset = 0.0;
@@ -182,7 +221,13 @@ public static class ScoreLayoutEngine
             {
                 if (isVisible is not null && !isVisible(p, s)) continue;
                 if (slots.Count > 0)
-                    offset += (4 + (firstOfPart ? options.StaffGapBetweenParts : options.StaffGapInPart)) * options.StaffSpace;
+                {
+                    var gap = project.Engraving is { } engraving
+                        ? StaffDistance(project.Parts[p], s, systemStart) ?? engraving.StaffDistance
+                        : firstOfPart ? options.StaffGapBetweenParts : options.StaffGapInPart;
+                    offset += (4 + gap) * options.StaffSpace;
+                }
+
                 slots.Add(new StaffSlot(p, s, staves[s].Clef, offset));
                 firstOfPart = false;
             }
@@ -195,7 +240,17 @@ public static class ScoreLayoutEngine
     private static List<StaffSlot> VisibleSlots(ScoreProject project, PlannedSystem system, LayoutOptions options) =>
         BuildStaffSlots(project, options, (p, s) =>
             system.MeasureCount == 0
-            || system.Measures.Any(m => project.Parts[p].Measures.Count <= m.Index || !project.Parts[p].Measures[m.Index].HiddenStaves.Contains(s)));
+            || system.Measures.Any(m => project.Parts[p].Measures.Count <= m.Index || !project.Parts[p].Measures[m.Index].HiddenStaves.Contains(s)),
+            system.MeasureCount == 0 ? -1 : system.FirstMeasure);
+
+    private static double? StaffDistance(ScorePart part, int staff, int measure) =>
+        measure >= 0 && measure < part.Measures.Count
+            ? part.Measures[measure].StaffDistances.FirstOrDefault(d => d.Staff == staff)?.Distance
+            : null;
+
+    /// <summary>A system-wide value from the source at a measure: Finale writes it in the top visible part, so any part may hold it.</summary>
+    private static double? SourceValue(ScoreProject project, int measure, Func<ScoreMeasure, double?> value) =>
+        measure < 0 ? null : project.Parts.Where(p => measure < p.Measures.Count).Select(p => value(p.Measures[measure])).FirstOrDefault(v => v is not null);
 
     /// <summary>
     /// Measures are aligned across parts by index. The time signature comes from the first part that has the measure.
@@ -371,7 +426,7 @@ public static class ScoreLayoutEngine
 
         var left = plan.Left;
         var right = plan.MeasureCount == 0
-            ? page.Width - options.Margin
+            ? page.Width - options.Right
             : left + plan.HeaderWidth + plan.Measures.Sum(m => m.Width);
         var staffTops = slots.Select(s => top + s.Offset).ToArray();
         var bottom = staffTops[^1] + 4 * sp;
