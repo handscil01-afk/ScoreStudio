@@ -11,6 +11,8 @@ using ScoreStudio.Import;
 using ScoreStudio.KeyInput;
 using ScoreStudio.Layout;
 using ScoreStudio.Models;
+using ScoreStudio.Recognition;
+using ScoreStudio.RecognitionUi;
 using ScoreStudio.Rendering;
 using ScoreStudio.Services;
 
@@ -133,6 +135,48 @@ public partial class MainWindow : Window
         var fileName = System.IO.Path.GetFileName(dialog.FileName);
         StatusText.Content = $"가져오기 완료: {fileName} (경고 {result.Warnings.Count}종류) · 보관하려면 저장하세요.";
         new ImportReportWindow(fileName, result) { Owner = this }.ShowDialog();
+    }
+
+    /// <summary>
+    /// Reads scores from PDF files and pictures with Audiveris (docs/OMR_IMPORT.md); several files are joined in the
+    /// order their names number them.
+    /// </summary>
+    private void RecognizeScore_Click(object sender, RoutedEventArgs e)
+    {
+        if (!ConfirmDiscard()) return;
+        var dialog = new OpenFileDialog
+        {
+            Title = "악보 인식: PDF·그림 고르기 (여러 개를 고르면 이름 순서대로 이어 붙입니다)",
+            Filter = "악보 PDF·그림 (*.pdf;*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff)|*.pdf;*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff",
+            Multiselect = true,
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        var files = dialog.FileNames.OrderBy(f => System.IO.Path.GetFileName(f), NaturalOrder.Instance).ToList();
+
+        var audiveris = AudiverisLocator.Find(_settings.AudiverisPath);
+        if (audiveris is null)
+        {
+            var setup = new AudiverisSetupWindow(_settings, SettingsPath) { Owner = this };
+            if (setup.ShowDialog() != true || setup.Found is null)
+            {
+                StatusText.Content = "Audiveris가 없어 악보 인식을 하지 않았습니다.";
+                return;
+            }
+
+            audiveris = setup.Found;
+        }
+
+        var window = new RecognitionWindow(audiveris, files) { Owner = this };
+        if (window.ShowDialog() != true || window.Result is not { } result)
+        {
+            StatusText.Content = "악보 인식을 취소했거나 실패했습니다. 현재 악보는 그대로입니다.";
+            return;
+        }
+
+        UseProject(result.Score);
+        var name = System.IO.Path.GetFileName(files[0]) + (files.Count > 1 ? $" 외 {files.Count - 1}개" : "");
+        StatusText.Content = $"악보 인식 완료: {name} · 원본과 비교해 고친 뒤 저장하세요.";
+        new ImportReportWindow($"악보 인식: {name}", result.Import, result.Notes) { Owner = this, Title = "악보 인식 결과" }.ShowDialog();
     }
 
     private void SaveProject_Click(object sender, RoutedEventArgs e)
@@ -771,7 +815,7 @@ public partial class MainWindow : Window
     private void About_Click(object sender, RoutedEventArgs e)
     {
         MessageBox.Show(this,
-            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·조표·박자표·마디선·음표·쉼표·빔·붙임줄·잇단음표·가사·코드 이름·도돌이표·볼타·음자리표 변경·옥타브 기호, 여러 페이지, 확대/축소), MusicXML 가져오기, 키보드와 마우스로 음표·쉼표 입력과 고치기, 조표·박자표·음자리표 바꾸기, 잇단음표·가사·코드 이름 입력(실행 취소 포함)\n아직 가져오지 않음: 셈여림, 이음줄, 아티큘레이션, 글자 지시(가져오기 결과 창에 경고로 표시)\n아직 지원하지 않음: MUSX 변환, PDF 출력",
+            "ScoreStudio 개발 버전\n\n지원: 프로젝트 저장/열기, 악보 화면(오선·음자리표·조표·박자표·마디선·음표·쉼표·빔·붙임줄·잇단음표·가사·코드 이름·도돌이표·볼타·음자리표 변경·옥타브 기호, 여러 페이지, 확대/축소), MusicXML 가져오기, PDF·그림에서 악보 인식(Audiveris), 키보드와 마우스로 음표·쉼표 입력과 고치기, 조표·박자표·음자리표 바꾸기, 잇단음표·가사·코드 이름 입력(실행 취소 포함)\n아직 가져오지 않음: 셈여림, 이음줄, 아티큘레이션, 글자 지시(가져오기 결과 창에 경고로 표시)\n아직 지원하지 않음: MUSX 변환, PDF 출력",
             "개발 상태", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 

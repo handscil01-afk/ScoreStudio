@@ -22,6 +22,23 @@ public sealed class ImportSummary
 
     public int Ties { get; init; }
     public int ChordSymbols { get; init; }
+
+    /// <summary>What a score holds, counted for the import report.</summary>
+    public static ImportSummary Of(ScoreProject project)
+    {
+        var events = project.Parts.SelectMany(p => p.Measures).SelectMany(m => m.Events).ToList();
+        return new ImportSummary
+        {
+            Parts = project.Parts.Count,
+            Measures = project.Parts.Select(p => p.Measures.Count).DefaultIfEmpty(0).Max(),
+            Notes = events.Count(e => e.Kind == "Note"),
+            Rests = events.Count(e => e.Kind == "Rest"),
+            Lyrics = events.Count(e => e.Lyrics.Count > 0),
+            LyricVerses = events.SelectMany(e => e.Lyrics).Select(l => l.Verse).DefaultIfEmpty(0).Max(),
+            Ties = events.Count(e => e.TieToNext),
+            ChordSymbols = project.Parts.SelectMany(p => p.Measures).Sum(m => m.ChordSymbols.Count),
+        };
+    }
 }
 
 public sealed class ImportResult

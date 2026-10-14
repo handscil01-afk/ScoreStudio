@@ -8,6 +8,9 @@ public sealed class AppSettings
     /// <summary>A note longer than the rest of the measure goes on in the next measure, tied (off: it is refused).</summary>
     public bool TieAcrossBarlines { get; set; }
 
+    /// <summary>Audiveris.exe chosen by the user for music recognition; null to look where its installers put it.</summary>
+    public string? AudiverisPath { get; set; }
+
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
 
     /// <summary>

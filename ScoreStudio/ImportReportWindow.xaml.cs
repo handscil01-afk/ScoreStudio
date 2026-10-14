@@ -8,10 +8,16 @@ public partial class ImportReportWindow : Window
 {
     private readonly ImportResult _result;
 
-    public ImportReportWindow(string fileName, ImportResult result)
+    /// <param name="notes">More to tell about the result (music recognition: overlaps removed, pages not read, …).</param>
+    public ImportReportWindow(string fileName, ImportResult result, IReadOnlyList<string>? notes = null)
     {
         InitializeComponent();
         _result = result;
+        if (notes is { Count: > 0 })
+        {
+            NotesText.Text = string.Join(Environment.NewLine, notes);
+            NotesText.Visibility = Visibility.Visible;
+        }
 
         var summary = result.Summary;
         FileText.Text = $"가져오기 완료: {fileName}";
@@ -29,7 +35,7 @@ public partial class ImportReportWindow : Window
         var lines = _result.Warnings.Select(w => $"{w.Message}\t{w.Count}\t{w.FirstLocation}");
         try
         {
-            Clipboard.SetText(string.Join(Environment.NewLine, new[] { FileText.Text, SummaryText.Text }.Concat(lines)));
+            Clipboard.SetText(string.Join(Environment.NewLine, new[] { FileText.Text, SummaryText.Text, NotesText.Text }.Where(t => t.Length > 0).Concat(lines)));
         }
         catch (System.Runtime.InteropServices.ExternalException)
         {

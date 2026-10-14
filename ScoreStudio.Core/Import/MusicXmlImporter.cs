@@ -184,23 +184,7 @@ public static class MusicXmlImporter
         if (project.Parts.Count == 0)
             throw new ProjectFileException("MusicXML 파일에 가져올 파트가 없습니다.");
 
-        var events = project.Parts.SelectMany(p => p.Measures).SelectMany(m => m.Events).ToList();
-        return new ImportResult
-        {
-            Project = project,
-            Warnings = warnings.ToList(),
-            Summary = new ImportSummary
-            {
-                Parts = project.Parts.Count,
-                Measures = project.Parts.Max(p => p.Measures.Count),
-                Notes = events.Count(e => e.Kind == "Note"),
-                Rests = events.Count(e => e.Kind == "Rest"),
-                Lyrics = events.Count(e => e.Lyrics.Count > 0),
-                LyricVerses = events.SelectMany(e => e.Lyrics).Select(l => l.Verse).DefaultIfEmpty(0).Max(),
-                Ties = events.Count(e => e.TieToNext),
-                ChordSymbols = project.Parts.SelectMany(p => p.Measures).Sum(m => m.ChordSymbols.Count),
-            },
-        };
+        return new ImportResult { Project = project, Warnings = warnings.ToList(), Summary = ImportSummary.Of(project) };
     }
 
     /// <summary>Finale names unnamed staves "MusicXML Part"; that is a placeholder, not a name.</summary>
