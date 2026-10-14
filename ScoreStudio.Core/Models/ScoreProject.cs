@@ -9,7 +9,7 @@ namespace ScoreStudio.Models;
 public sealed class ScoreProject
 {
     /// <summary>The project file schema version this build reads and writes.</summary>
-    public const int CurrentSchemaVersion = 15;
+    public const int CurrentSchemaVersion = 16;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string Title { get; set; } = "새 악보";
@@ -26,6 +26,12 @@ public sealed class ScoreProject
 
     /// <summary>Staff size, margins and spacing taken from the source (e.g. Finale's page layout); null uses defaults.</summary>
     public ScoreEngraving? Engraving { get; set; }
+
+    /// <summary>
+    /// Pictures of the original pages a recognised score came from, to compare with it (docs/OMR_COMPARE.md). They never
+    /// change with edits, so undo snapshots leave them out.
+    /// </summary>
+    public List<ScoreSourcePage> SourcePages { get; set; } = new();
 
     public static ScoreProject CreateNew() => new()
     {
@@ -79,6 +85,13 @@ public sealed class ScoreEngraving
     /// <summary>From the bottom line of one staff to the top line of the next within a system, unless a system says otherwise.</summary>
     public double StaffDistance { get; set; } = 8;
 
+    /// <summary>
+    /// A page size of its own in mm (both set), e.g. a recognised picture's; it is used instead of
+    /// <see cref="ScoreProject.PageSize"/> and <see cref="ScoreProject.Orientation"/>.
+    /// </summary>
+    public double? PageWidth { get; set; }
+    public double? PageHeight { get; set; }
+
     /// <summary>Lyric font size in millimetres (one em); null uses ScoreStudio's default.</summary>
     public double? LyricFontSize { get; set; }
 
@@ -87,6 +100,25 @@ public sealed class ScoreEngraving
     /// serif family are drawn and measured in a serif font, others in the sans-serif text font.
     /// </summary>
     public string? LyricFontFamily { get; set; }
+}
+
+/// <summary>A picture of an original page, and where it lies on a page of the score (to compare the two).</summary>
+public sealed class ScoreSourcePage
+{
+    /// <summary>The score page it belongs to (from 0).</summary>
+    public int Page { get; set; }
+
+    /// <summary>The picture as a PNG file (a grayscale page as the recognition program read it).</summary>
+    public byte[] Png { get; set; } = Array.Empty<byte>();
+
+    /// <summary>Where the picture lies on the score page, in mm.</summary>
+    public double Left { get; set; }
+    public double Top { get; set; }
+    public double Width { get; set; }
+    public double Height { get; set; }
+
+    /// <summary>What it is, e.g. "악보.pdf 2쪽".</summary>
+    public string Name { get; set; } = "";
 }
 
 /// <summary>A staff's distance from the staff above it in the system that starts at this measure.</summary>

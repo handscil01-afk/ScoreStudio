@@ -14,7 +14,8 @@ public static class ScoreMerge
     /// extra parts are dropped; each joined score starts a new system; measures repeated from the end of the score so
     /// far (two or more, in every part) are left out. Returns the joined score and notes for the user.
     /// </summary>
-    public static (ScoreProject Score, List<string> Notes) Join(IReadOnlyList<ScoreProject> scores)
+    /// <param name="newPage">Each joined score starts a new page too (to line up with its picture).</param>
+    public static (ScoreProject Score, List<string> Notes) Join(IReadOnlyList<ScoreProject> scores, bool newPage = false)
     {
         if (scores.Count == 0) throw new ArgumentException("이어 붙일 악보가 없습니다.", nameof(scores));
         var result = scores[0];
@@ -42,7 +43,7 @@ public static class ScoreMerge
                     var measure = p < next.Parts.Count && m < next.Parts[p].Measures.Count
                         ? next.Parts[p].Measures[m]
                         : RestMeasure(next.Parts.Where(q => m < q.Measures.Count).Select(q => q.Measures[m]).FirstOrDefault());
-                    if (m == skip) measure.SystemBreak = true;
+                    if (m == skip) (measure.SystemBreak, measure.PageBreak) = (true, measure.PageBreak || newPage);
                     part.Measures.Add(measure);
                 }
             }

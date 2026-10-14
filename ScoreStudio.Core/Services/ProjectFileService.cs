@@ -158,6 +158,12 @@ public static class ProjectFileService
     /// <summary>Longest font family name kept from a source file.</summary>
     public const int MaxFontFamilyLength = 100;
 
+    /// <summary>Largest page side a file may give, in mm.</summary>
+    private const double MaxPageSize = 2000;
+
+    /// <summary>Largest original page picture a file may hold.</summary>
+    private const int MaxSourcePageBytes = 30 * 1024 * 1024;
+
     /// <summary>Largest tuplet number (notes, or the normal notes they stand for) a file may hold.</summary>
     private const int MaxTupletNumber = 64;
 
@@ -170,6 +176,21 @@ public static class ProjectFileService
         project.Orientation ??= "Portrait";
         project.Parts ??= new List<ScorePart>();
         project.PartGroups ??= new List<ScorePartGroup>();
+        project.SourcePages ??= new List<ScoreSourcePage>();
+        for (var s = 0; s < project.SourcePages.Count; s++)
+        {
+            var source = project.SourcePages[s];
+            if (source is null || source.Page < 0 || source.Png is null || source.Png.Length is 0 or > MaxSourcePageBytes
+                || !InRange(source.Width, 1, MaxPageSize) || !InRange(source.Height, 1, MaxPageSize)
+                || !InRange(source.Left, -MaxPageSize, MaxPageSize) || !InRange(source.Top, -MaxPageSize, MaxPageSize))
+                throw Corrupt($"{s + 1}번째 원본 쪽 그림 정보가 올바르지 않습니다.");
+            source.Name ??= "";
+        }
+
+        if (project.Engraving is { PageWidth: var pageWidth, PageHeight: var pageHeight }
+            && (pageWidth is { } w && !InRange(w, 20, MaxPageSize) || pageHeight is { } h && !InRange(h, 20, MaxPageSize) || (pageWidth is null) != (pageHeight is null)))
+            throw Corrupt("페이지 크기 정보가 올바르지 않습니다.");
+
         if (project.Engraving is { } engraving
             && (!InRange(engraving.StaffSpace, 0.5, 5) || !InRange(engraving.MarginLeft, 0, 100) || !InRange(engraving.MarginRight, 0, 100)
                 || !InRange(engraving.MarginTop, 0, 100) || !InRange(engraving.MarginBottom, 0, 100)

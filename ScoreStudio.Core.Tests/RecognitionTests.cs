@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using ScoreStudio.Import;
+using ScoreStudio.Layout;
 using ScoreStudio.Models;
 using ScoreStudio.Recognition;
 
@@ -259,6 +260,7 @@ public sealed class RecognitionTests : IDisposable
     private string FakeAudiveris()
     {
         var sample = Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", "beams.musicxml");
+        var book = Book(Path.Combine(_dir, "book.omr"), Staves(19, 2, 2480), Staves(19, 2, 2480));
         var script = Path.Combine(_dir, "audiveris.sh");
         File.WriteAllText(script, $$"""
             #!/bin/sh
@@ -269,7 +271,7 @@ public sealed class RecognitionTests : IDisposable
                 --) shift; inputs=1;;
                 *) if [ $inputs = 1 ]; then
                      name=$(basename "$1"); base="${name%.*}"
-                     case "$name" in *slow*) sleep 30;; *fail*) ;; *) cp "{{sample}}" "$out/$base.xml";; esac
+                     case "$name" in *slow*) sleep 30;; *fail*) ;; *) cp "{{sample}}" "$out/$base.xml"; cp "{{book}}" "$out/$base.omr";; esac
                      echo "INFO processed $name"
                    fi; shift;;
               esac
@@ -277,6 +279,21 @@ public sealed class RecognitionTests : IDisposable
             """.Replace("\r\n", "\n"));
         if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         return script;
+    }
+
+    /// <summary>An Audiveris book file holding these pages' pictures (and other entries, as the real one has).</summary>
+    private static string Book(string path, params GrayImage[] pages)
+    {
+        using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
+        zip.CreateEntry("book.xml");
+        for (var i = pages.Length - 1; i >= 0; i--) // out of order on purpose
+        {
+            zip.CreateEntry($"sheet#{i + 1}/sheet#{i + 1}.xml");
+            using var stream = zip.CreateEntry($"sheet#{i + 1}/BINARY.png").Open();
+            PngCodec.Encode(pages[i], stream);
+        }
+
+        return path;
     }
 
     [Fact]
@@ -331,6 +348,14 @@ public sealed class RecognitionTests : IDisposable
         var sample = MusicXmlImporter.ImportFile(Path.Combine(AppContext.BaseDirectory, "samples", "musicxml", "beams.musicxml")).Project;
         Assert.Equal(2 * sample.Parts[0].Measures.Count, result.Score.Parts[0].Measures.Count);
         Assert.Contains(result.Notes, n => n.Contains("fail.png"));
+
+        // The pictures are kept, page by page, and each file's music starts a page.
+        Assert.Equal(4, result.Score.SourcePages.Count); // two pages in each of the two books read
+        Assert.Equal(new[] { 0, 1, 2, 3 }, result.Score.SourcePages.Select(p => p.Page));
+        Assert.Equal("small.png 1쪽", result.Score.SourcePages[0].Name);
+        Assert.Equal(2480 * 25.4 / 300, result.Score.Engraving!.PageWidth!.Value, 6);
+        Assert.True(result.Score.Parts[0].Measures[sample.Parts[0].Measures.Count].PageBreak);
+        Assert.All(result.Score.Parts, p => Assert.False(p.ShowName));
         Assert.Contains(result.Notes, n => n.Contains("틀린 곳"));
         Assert.DoesNotContain(result.Warnings, w => w.Message.Contains("용지 크기"));
 
@@ -399,6 +424,111 @@ public sealed class RecognitionTests : IDisposable
         // One equal measure may be a real repeat.
         var (repeat, _) = ScoreMerge.Join(new[] { Score(1, 60, 62), Score(1, 62, 64) });
         Assert.Equal(new[] { 60, 62, 62, 64 }, Pitches(repeat.Parts[0]));
+    }
+
+    // ---- Original page pictures -----------------------------------------------------------------------------------
+
+    [Fact]
+    public void PagePictures_AreReadFromTheBook_InSheetOrder()
+    {
+        var book = Book(Path.Combine(_dir, "song.omr"), Staves(10, 1, 300), Staves(12, 1, 200));
+        var sheets = SourcePictures.FromBook(book, "노래.pdf");
+        Assert.Equal(new[] { ("노래.pdf 1쪽", 300), ("노래.pdf 2쪽", 200) }, sheets.Select(s => (s.Name, s.Width)));
+        Assert.Equal(300 * 25.4 / 300, sheets[0].WidthMm, 9);
+        Assert.Equal((300, Staves(10, 1, 300).Height), SourcePictures.Size(sheets[0].Png));
+        Assert.Null(SourcePictures.Size(new byte[] { 1, 2, 3 }));
+    }
+
+    [Fact]
+    public void SystemMargins_AreReadFromTheFirstSystem_OfAnMxlOrXmlFile()
+    {
+        const string xml = """
+            <score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+              <measure number="1"><print><system-layout><system-margins><left-margin>80</left-margin><right-margin>53</right-margin></system-margins></system-layout></print></measure>
+              <measure number="2"><print new-system="yes"><system-layout><system-margins><left-margin>10</left-margin><right-margin>5</right-margin></system-margins></system-layout></print></measure>
+            </part></score-partwise>
+            """;
+        var plain = Path.Combine(_dir, "a.xml");
+        File.WriteAllText(plain, xml);
+        Assert.Equal((80.0, 53.0), SourcePictures.SystemMargins(plain));
+
+        var compressed = Path.Combine(_dir, "a.mxl");
+        using (var zip = ZipFile.Open(compressed, ZipArchiveMode.Create))
+        {
+            using var writer = new StreamWriter(zip.CreateEntry("a.xml").Open());
+            writer.Write(xml);
+        }
+
+        Assert.Equal((80.0, 53.0), SourcePictures.SystemMargins(compressed));
+        File.WriteAllText(plain, "<score-partwise/>");
+        Assert.Null(SourcePictures.SystemMargins(plain));
+        File.WriteAllText(plain, "not xml");
+        Assert.Null(SourcePictures.SystemMargins(plain));
+    }
+
+    [Fact]
+    public void Attaching_FitsThePageToThePicture_AndKeepsThePictures()
+    {
+        var score = Score(1, 60, 62);
+        score.Engraving = new ScoreEngraving { StaffSpace = 1.6, MarginTop = 13, MarginBottom = 13 };
+        var picture = new SheetPicture("a.png 1쪽", new byte[] { 1 }, 2480, 3508);
+        SourcePictures.Attach(score, new[] { picture }, (80, 50));
+
+        var engraving = score.Engraving;
+        Assert.Equal((209.97, 297.01), (Math.Round(engraving.PageWidth!.Value, 2), Math.Round(engraving.PageHeight!.Value, 2)));
+        Assert.Equal((0.0, 0.0, 12.8, 8.0), (engraving.MarginTop, engraving.MarginBottom, Math.Round(engraving.MarginLeft, 6), Math.Round(engraving.MarginRight, 6)));
+        Assert.Equal((209.97, 297.01), PageSizes.Of(score) is var size ? (Math.Round(size.Width, 2), Math.Round(size.Height, 2)) : default);
+        var page = Assert.Single(score.SourcePages);
+        Assert.Equal((0, 0.0, 0.0, "a.png 1쪽"), (page.Page, page.Left, page.Top, page.Name));
+        Assert.False(score.Parts[0].ShowName);
+    }
+
+    [Fact]
+    public void PagePictures_SurviveSaving_AndStayOutOfUndo()
+    {
+        var project = ScoreProject.CreateNew();
+        project.Engraving = new ScoreEngraving { PageWidth = 219, PageHeight = 95 };
+        var png = new MemoryStream();
+        PngCodec.Encode(Staves(10, 1, 300), png);
+        project.SourcePages.Add(new ScoreSourcePage { Page = 0, Png = png.ToArray(), Width = 219, Height = 95, Name = "캡처 1쪽" });
+
+        var path = Path.Combine(_dir, "with-pictures.scoreproj");
+        ScoreStudio.Services.ProjectFileService.Save(path, project);
+        var reopened = ScoreStudio.Services.ProjectFileService.Load(path);
+        Assert.Equal(png.ToArray(), reopened.SourcePages.Single().Png);
+        Assert.Equal((219.0, 95.0), (reopened.Engraving!.PageWidth, reopened.Engraving.PageHeight));
+        Assert.Equal((219.0, 95.0), PageSizes.Of(reopened));
+
+        // Editing and undoing keeps the pictures; undo snapshots stay small.
+        var editor = new ScoreStudio.Editing.ScoreEditor(reopened);
+        Assert.True(editor.EnterNote('C').Done);
+        Assert.True(editor.Undo().Done);
+        Assert.Same(reopened.SourcePages[0].Png, editor.Project.SourcePages.Single().Png);
+        Assert.True(editor.Redo().Done);
+        Assert.Single(editor.Project.SourcePages);
+        Assert.Empty(ScoreStudio.Services.ProjectFileService.FromJson(ScoreStudio.Services.ProjectFileService.ToJson(ScoreProject.CreateNew())).SourcePages);
+
+        Assert.Empty(ScoreStudio.Services.ProjectFileService.Parse("""{ "SchemaVersion": 15, "Parts": [] }""").SourcePages);
+        foreach (var bad in new[]
+                 {
+                     """{ "SchemaVersion": 16, "SourcePages": [ { "Page": -1, "Png": "AQ==", "Width": 10, "Height": 10 } ] }""",
+                     """{ "SchemaVersion": 16, "SourcePages": [ { "Page": 0, "Png": "", "Width": 10, "Height": 10 } ] }""",
+                     """{ "SchemaVersion": 16, "SourcePages": [ { "Page": 0, "Png": "AQ==", "Width": 0, "Height": 10 } ] }""",
+                     """{ "SchemaVersion": 16, "SourcePages": [ null ] }""",
+                     """{ "SchemaVersion": 16, "Engraving": { "PageWidth": 200 } }""",
+                     """{ "SchemaVersion": 16, "Engraving": { "PageWidth": 5, "PageHeight": 5 } }""",
+                 })
+        {
+            var error = Assert.Throws<ScoreStudio.Services.ProjectFileException>(() => ScoreStudio.Services.ProjectFileService.Parse(bad));
+            Assert.Matches("원본 쪽 그림|페이지 크기", error.Message);
+        }
+    }
+
+    [Fact]
+    public void WorkNames_ArePlainAscii()
+    {
+        Assert.Equal("score", RecognitionJob.SafeName("악보 score!"));
+        Assert.Equal("page", RecognitionJob.SafeName("좋아 좋아"));
     }
 
     // ---- OCR languages ---------------------------------------------------------------------------------------------
@@ -501,6 +631,33 @@ public sealed class RecognitionTests : IDisposable
         Console.WriteLine($"Audiveris accuracy on the 150 dpi captures: {accuracy:P1} ({recognised.Count} of {expected.Count} notes and rests)");
         Assert.True(accuracy >= 0.9, $"only {accuracy:P1} of the notes and rests were recognised");
         Assert.Equal(11, result.Score.Parts[0].Measures.Count);
+
+        // The score's pages line up with the pictures: one page each, the first staff line where the picture has it.
+        Assert.Equal(2, result.Score.SourcePages.Count);
+        var layout = ScoreLayoutEngine.Layout(result.Score);
+        Assert.Equal(2, layout.Pages.Count);
+        for (var p = 0; p < 2; p++)
+        {
+            var source = result.Score.SourcePages[p];
+            var picture = PngCodec.Decode(new MemoryStream(source.Png));
+            var pictureTop = FirstStaffLine(picture) * source.Height / picture.Height + source.Top;
+            var scoreTop = layout.Pages[p].Systems[0].Staves[0].Top;
+            Console.WriteLine($"page {p + 1}: first staff line at {scoreTop:F2} mm in the score, {pictureTop:F2} mm in the picture");
+            Assert.InRange(scoreTop - pictureTop, -1, 1);
+        }
+    }
+
+    /// <summary>The first row of a picture that is dark across most of its width: the top line of the first staff.</summary>
+    private static int FirstStaffLine(GrayImage picture)
+    {
+        for (var y = 0; y < picture.Height; y++)
+        {
+            var dark = 0;
+            for (var x = 0; x < picture.Width; x++) if (picture[x, y] < 128) dark++;
+            if (dark > picture.Width / 2) return y;
+        }
+
+        return -1;
     }
 
     /// <summary>Notes and rests of a part in time order, as "pitch or r / length".</summary>

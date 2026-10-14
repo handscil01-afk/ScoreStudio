@@ -48,8 +48,11 @@ public static class AudiverisLocator
     public const string ReleasesPage = "https://github.com/Audiveris/audiveris/releases";
 }
 
-/// <summary>What Audiveris made of one input: its scores (one per movement) in order, none when it failed.</summary>
-public sealed record RecognizedInput(string Input, IReadOnlyList<string> Scores);
+/// <summary>
+/// What Audiveris made of one input: its scores (one per movement) in order, none when it failed, and its book file
+/// (".omr", which holds the page pictures it read), or null.
+/// </summary>
+public sealed record RecognizedInput(string Input, IReadOnlyList<string> Scores, string? Book = null);
 
 /// <summary>Runs Audiveris in batch mode and collects the MusicXML files it exports (docs/OMR_IMPORT.md, step 5).</summary>
 public static class AudiverisRunner
@@ -92,9 +95,11 @@ public static class AudiverisRunner
         IProgress<string>? log = null, CancellationToken cancellation = default)
     {
         Directory.CreateDirectory(outputFolder);
+        // Audiveris (Java) writes its log in UTF-8; read as the console's code page, Korean names came out garbled.
         var start = new ProcessStartInfo(executable)
         {
             UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true,
+            StandardOutputEncoding = System.Text.Encoding.UTF8, StandardErrorEncoding = System.Text.Encoding.UTF8,
         };
         foreach (var argument in Arguments(inputs, outputFolder, languages)) start.ArgumentList.Add(argument);
 
@@ -118,7 +123,11 @@ public static class AudiverisRunner
             throw new TimeoutException($"악보 인식이 {timeout.TotalMinutes:0}분 안에 끝나지 않아 멈췄습니다.");
         }
 
-        return inputs.Select(input => new RecognizedInput(input, ScoresFor(input, outputFolder))).ToList();
+        return inputs.Select(input =>
+        {
+            var book = Path.Combine(outputFolder, Path.GetFileNameWithoutExtension(input) + ".omr");
+            return new RecognizedInput(input, ScoresFor(input, outputFolder), File.Exists(book) ? book : null);
+        }).ToList();
     }
 }
 

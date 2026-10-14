@@ -548,11 +548,26 @@ public sealed partial class ScoreEditor
 
     private sealed record Snapshot(string Json, EditPosition Cursor, EditPosition? Selection, bool SelectionIsEntry);
 
-    private Snapshot Capture() => new(ProjectFileService.ToJson(Project), Cursor, Selection, SelectionIsEntry);
+    /// <summary>The score as it is now, without the original page pictures (edits never change them).</summary>
+    private Snapshot Capture()
+    {
+        var pictures = Project.SourcePages;
+        Project.SourcePages = new List<ScoreSourcePage>();
+        try
+        {
+            return new Snapshot(ProjectFileService.ToJson(Project), Cursor, Selection, SelectionIsEntry);
+        }
+        finally
+        {
+            Project.SourcePages = pictures;
+        }
+    }
 
     private void Restore(Snapshot snapshot)
     {
+        var pictures = Project.SourcePages;
         Project = ProjectFileService.FromJson(snapshot.Json);
+        Project.SourcePages = pictures;
         (Cursor, Selection, SelectionIsEntry) = (snapshot.Cursor, snapshot.Selection, snapshot.SelectionIsEntry);
     }
 

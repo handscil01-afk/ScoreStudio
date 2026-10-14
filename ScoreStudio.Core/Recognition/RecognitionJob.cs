@@ -76,8 +76,22 @@ public sealed class RecognitionJob
 
         var scores = new List<ScoreProject>();
         var warnings = new List<ImportWarning>();
+        var sheets = new List<SheetPicture>();
+        (double Left, double Right)? systemMargins = null;
         for (var i = 0; i < recognized.Count; i++)
         {
+            if (recognized[i].Book is { } book)
+            {
+                try
+                {
+                    sheets.AddRange(SourcePictures.FromBook(book, Path.GetFileName(files[i])));
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException)
+                {
+                    notes.Add($"{Path.GetFileName(files[i])}의 원본 그림을 읽지 못해 비교 화면에 넣지 않았습니다.");
+                }
+            }
+
             if (recognized[i].Scores.Count == 0)
             {
                 notes.Add($"{Path.GetFileName(files[i])}에서 악보를 찾지 못했습니다(Audiveris 기록을 확인하세요).");
@@ -89,6 +103,7 @@ public sealed class RecognitionJob
                 var imported = MusicXmlImporter.ImportFile(score);
                 if (imported.Project.Parts.Count == 0 || imported.Project.Parts.All(p => p.Measures.Count == 0)) continue;
                 scores.Add(imported.Project);
+                systemMargins ??= SourcePictures.SystemMargins(score);
                 // Audiveris gives the picture's size as the page: no paper size to warn about.
                 warnings.AddRange(imported.Warnings.Where(w => !w.Message.StartsWith(PaperSizeWarning, StringComparison.Ordinal)));
             }
@@ -96,19 +111,24 @@ public sealed class RecognitionJob
 
         if (scores.Count == 0) throw new InvalidOperationException("어느 파일에서도 악보를 인식하지 못했습니다. 그림이 선명한지, 오선이 잘리지 않았는지 확인하세요.");
 
-        var (joined, joinNotes) = ScoreMerge.Join(scores);
+        // Each picture's music starts a page, so that page by page the score lines up with the pictures.
+        var (joined, joinNotes) = ScoreMerge.Join(scores, newPage: sheets.Count > 0);
         notes.AddRange(joinNotes);
+        SourcePictures.Attach(joined, sheets, systemMargins);
         if (string.IsNullOrWhiteSpace(joined.Title) || joined.Title == "새 악보") joined.Title = Path.GetFileNameWithoutExtension(files[0]);
         joined.ImportedFrom = files[0];
         notes.Add("인식 결과에는 틀린 곳이 있을 수 있습니다. 원본과 비교해 고치세요.");
         return new RecognitionResult(new ImportResult { Project = joined, Warnings = Merge(warnings), Summary = ImportSummary.Of(joined) }, notes);
     }
 
-    private static string SafeName(string name)
+    /// <summary>
+    /// The input's name for Audiveris: plain ASCII letters and digits only, so no program on the way can garble it
+    /// (the numbered prefix already keeps names apart).
+    /// </summary>
+    public static string SafeName(string name)
     {
-        var invalid = Path.GetInvalidFileNameChars();
-        var safe = new string(name.Select(c => invalid.Contains(c) || c == '.' || char.IsWhiteSpace(c) ? '_' : c).ToArray());
-        return safe.Length == 0 ? "page" : safe[..Math.Min(safe.Length, 40)];
+        var safe = new string(name.Where(char.IsAsciiLetterOrDigit).Take(40).ToArray());
+        return safe.Length == 0 ? "page" : safe;
     }
 
     /// <summary>Warnings of the same kind from several results added up, keeping the first place.</summary>

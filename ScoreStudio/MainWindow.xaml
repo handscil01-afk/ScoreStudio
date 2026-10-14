@@ -59,6 +59,12 @@
                 <MenuItem Header="확대" InputGestureText="Ctrl+=" Click="ZoomIn_Click"/>
                 <MenuItem Header="축소" InputGestureText="Ctrl+-" Click="ZoomOut_Click"/>
                 <MenuItem Header="100%로 보기" InputGestureText="Ctrl+0" Click="ZoomReset_Click"/>
+                <Separator/>
+                <MenuItem x:Name="CompareMenu" Header="원본 비교">
+                    <MenuItem Header="끄기" Tag="Off" Click="CompareMenu_Click"/>
+                    <MenuItem Header="나란히 보기" Tag="SideBySide" Click="CompareMenu_Click"/>
+                    <MenuItem Header="겹쳐 보기" Tag="Overlay" Click="CompareMenu_Click"/>
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="문서(_D)">
                 <MenuItem x:Name="KeyMenu" Header="조표 바꾸기 (입력 위치의 마디부터)"/>
@@ -137,6 +143,22 @@
                 <ToggleButton x:Name="MouseEntryButton" Content="마우스 입력 (N)" Click="MouseEntry_Click" Focusable="False" Padding="8,4"
                               ToolTip="Simple Entry 도구에서 오선 위를 눌러 그 높이의 음표를 넣습니다. Shift를 누른 채 누르면 그 자리의 화음에 더합니다. 끄면 누른 음표를 선택합니다."/>
             </ToolBar>
+            <!-- Comparing a recognised score with its original pages (docs/OMR_COMPARE.md). -->
+            <ToolBar x:Name="CompareToolBar" IsEnabled="False" ToolTipService.ShowOnDisabled="True" ToolTip="악보 인식으로 만든 악보에서 원본과 비교할 수 있습니다.">
+                <TextBlock Text="원본 비교" VerticalAlignment="Center" Margin="4,0,6,0"/>
+                <ComboBox x:Name="CompareModeInput" Width="80" SelectedIndex="0" SelectionChanged="CompareMode_Changed" ToolTip="원본 그림과 비교하는 방식">
+                    <ComboBoxItem Content="끄기" Tag="Off"/>
+                    <ComboBoxItem Content="나란히" Tag="SideBySide"/>
+                    <ComboBoxItem Content="겹쳐" Tag="Overlay"/>
+                </ComboBox>
+                <CheckBox x:Name="SyncScrollInput" Content="같이 스크롤" IsChecked="True" Focusable="False" VerticalAlignment="Center" Margin="8,0"
+                          Click="CompareOption_Changed" ToolTip="나란히 볼 때 한쪽을 스크롤하면 다른 쪽도 같은 자리로 갑니다."/>
+                <ToggleButton x:Name="OriginalOnTopInput" Content="원본을 위로" IsChecked="True" Focusable="False" Padding="6,4"
+                              Click="CompareOption_Changed" ToolTip="겹쳐 볼 때 원본(빨간색)을 악보 위에 둡니다. 끄면 악보가 위에 옵니다."/>
+                <TextBlock Text="투명도" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                <Slider x:Name="OverlayTransparencyInput" Width="110" Minimum="0" Maximum="0.9" Value="0.4" Focusable="False" VerticalAlignment="Center"
+                        ValueChanged="OverlayTransparency_Changed" ToolTip="겹쳐 볼 때 위에 있는 층을 얼마나 투명하게 할지 정합니다."/>
+            </ToolBar>
         </ToolBarTray>
 
         <StatusBar DockPanel.Dock="Bottom">
@@ -171,16 +193,36 @@
                 </StackPanel>
             </Border>
 
-            <ScrollViewer x:Name="ScoreScroll" Grid.Column="1" Background="#E8EBEF" HorizontalScrollBarVisibility="Auto"
-                          VerticalScrollBarVisibility="Auto" PreviewMouseWheel="ScoreScroll_PreviewMouseWheel"
-                          Focusable="True" FocusVisualStyle="{x:Null}" PreviewMouseLeftButtonDown="Score_MouseLeftButtonDown"
-                          PreviewMouseMove="Score_MouseMove" MouseLeave="Score_MouseLeave">
-                <StackPanel x:Name="PagesPanel" HorizontalAlignment="Center" Margin="28">
-                    <StackPanel.LayoutTransform>
-                        <ScaleTransform x:Name="ZoomTransform" ScaleX="1" ScaleY="1"/>
-                    </StackPanel.LayoutTransform>
-                </StackPanel>
-            </ScrollViewer>
+            <Grid Grid.Column="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="OriginalColumn" Width="0"/>
+                    <ColumnDefinition x:Name="SplitterColumn" Width="0"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- The original pages, side by side with the score (docs/OMR_COMPARE.md). -->
+                <ScrollViewer x:Name="OriginalScroll" Grid.Column="0" Background="#DDE1E6" HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Auto" Focusable="False" PreviewMouseWheel="ScoreScroll_PreviewMouseWheel"
+                              ScrollChanged="OriginalScroll_ScrollChanged">
+                    <StackPanel x:Name="OriginalPanel" HorizontalAlignment="Center" Margin="28">
+                        <StackPanel.LayoutTransform>
+                            <ScaleTransform x:Name="OriginalZoomTransform" ScaleX="1" ScaleY="1"/>
+                        </StackPanel.LayoutTransform>
+                    </StackPanel>
+                </ScrollViewer>
+                <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="#C3CAD3" Focusable="False"/>
+
+                <ScrollViewer x:Name="ScoreScroll" Grid.Column="2" Background="#E8EBEF" HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Auto" PreviewMouseWheel="ScoreScroll_PreviewMouseWheel"
+                              Focusable="True" FocusVisualStyle="{x:Null}" PreviewMouseLeftButtonDown="Score_MouseLeftButtonDown"
+                              PreviewMouseMove="Score_MouseMove" MouseLeave="Score_MouseLeave" ScrollChanged="ScoreScroll_ScrollChanged">
+                    <StackPanel x:Name="PagesPanel" HorizontalAlignment="Center" Margin="28">
+                        <StackPanel.LayoutTransform>
+                            <ScaleTransform x:Name="ZoomTransform" ScaleX="1" ScaleY="1"/>
+                        </StackPanel.LayoutTransform>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
 
             <Border Grid.Column="2" Background="{StaticResource PanelBrush}" BorderBrush="#D8DDE3" BorderThickness="1,0,0,0" Padding="12">
                 <StackPanel>

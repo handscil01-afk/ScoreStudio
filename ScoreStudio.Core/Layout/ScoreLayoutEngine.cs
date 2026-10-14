@@ -157,7 +157,7 @@ public static partial class ScoreLayoutEngine
                 MarginTop = engraving.MarginTop, MarginBottom = engraving.MarginBottom,
             };
         var sp = options.StaffSpace;
-        var (pageWidth, pageHeight) = PageSizes.Get(project.PageSize, project.Orientation);
+        var (pageWidth, pageHeight) = PageSizes.Of(project);
         var contentLeft = options.Left;
         var contentRight = pageWidth - options.Right;
         var contentBottom = pageHeight - options.Bottom;

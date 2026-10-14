@@ -286,6 +286,7 @@ public partial class MainWindow : Window
         _editor = new ScoreEditor(project) { TieAcrossBarlines = _settings.TieAcrossBarlines };
         _savedChangeCount = _editor.ChangeCount;
         ApplyProjectToUi();
+        RefreshCompareUi();
     }
 
     /// <summary>Asks before unsaved edits are thrown away; true when it is fine to go on.</summary>
@@ -398,6 +399,7 @@ public partial class MainWindow : Window
         }
 
         UseProject(result.Score);
+        if (Project.SourcePages.Count > 0) SetCompareMode(CompareMode.SideBySide);
         var name = System.IO.Path.GetFileName(files[0]) + (files.Count > 1 ? $" 외 {files.Count - 1}개" : "");
         StatusText.Content = $"악보 인식 완료: {name} · 원본과 비교해 고친 뒤 저장하세요.";
         new ImportReportWindow($"악보 인식: {name}", result.Import, result.Notes) { Owner = this, Title = "악보 인식 결과" }.ShowDialog();
@@ -446,6 +448,7 @@ public partial class MainWindow : Window
         var values = tag.Split('|');
         Project.PageSize = values[0];
         Project.Orientation = values[1];
+        if (Project.Engraving is { } engraving) (engraving.PageWidth, engraving.PageHeight) = (null, null); // a page size of its own gives way
         RefreshScore();
     }
 
@@ -753,22 +756,9 @@ public partial class MainWindow : Window
         if (PagesPanel is null) return;
 
         _layout = ScoreLayoutEngine.Layout(Project);
-        PagesPanel.Children.Clear();
         _pageViews.Clear();
-        foreach (var page in _layout.Pages)
-        {
-            var view = new PageView(page);
-            _pageViews.Add(view);
-            PagesPanel.Children.Add(new Border
-            {
-                Child = view,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0xCC, 0xD2, 0xD9)),
-                BorderThickness = new Thickness(1),
-                Margin = new Thickness(0, 0, 0, 24),
-                SnapsToDevicePixels = true,
-            });
-        }
-
+        _pageViews.AddRange(_layout.Pages.Select(page => new PageView(page)));
+        BuildPageVisuals();
         RefreshMarks();
         RefreshInfo();
     }
@@ -836,6 +826,8 @@ public partial class MainWindow : Window
         _zoom = Math.Clamp(zoom, ZoomLevels[0], ZoomLevels[^1]);
         ZoomTransform.ScaleX = _zoom;
         ZoomTransform.ScaleY = _zoom;
+        OriginalZoomTransform.ScaleX = _zoom;
+        OriginalZoomTransform.ScaleY = _zoom;
 
         _updatingUi = true;
         try
