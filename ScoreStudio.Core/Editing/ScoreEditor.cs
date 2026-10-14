@@ -104,6 +104,7 @@ public sealed partial class ScoreEditor
         var length = InputLength;
         string? pitchName = null;
         string? tupletName = null;
+        int? entered = null;
         return Change(() =>
         {
             var measure = MeasureAt(at);
@@ -115,6 +116,7 @@ public sealed partial class ScoreEditor
                     tupletNote = diatonic is { } td ? NoteAt(at, td / 7, ts, measure.KeyFifths) : MakeNote(at, ts, ReferenceDiatonic(at), measure.KeyFifths);
                     if (tupletNote is null) return "입력할 수 있는 음높이 범위를 벗어났습니다.";
                     pitchName = tupletNote.NotationSpelling;
+                    entered = Notation.Spell(tupletNote, measure.KeyFifths).Diatonic;
                 }
 
                 var refusal = EnterInTuplet(at, tupletNote, length, out var name);
@@ -133,6 +135,7 @@ public sealed partial class ScoreEditor
                 note = diatonic is { } d ? NoteAt(at, d / 7, s, measure.KeyFifths) : MakeNote(at, s, ReferenceDiatonic(at), measure.KeyFifths);
                 if (note is null) return "입력할 수 있는 음높이 범위를 벗어났습니다.";
                 pitchName = note.NotationSpelling;
+                entered = Notation.Spell(note, measure.KeyFifths).Diatonic;
             }
 
             // Measure by measure: what fits here, written as plain values, tied on to the rest in the next measure.
@@ -187,10 +190,15 @@ public sealed partial class ScoreEditor
             Selection = at;
             SelectionIsEntry = true;
             return null;
-        }, () => (step is null
-            ? $"{DescribeValue(InputType, InputDots, rest: true)}를 넣었습니다."
-            : $"{pitchName} {DescribeValue(InputType, InputDots, rest: false)}를 넣었습니다.")
-            + (tupletName is null ? "" : $" ({tupletName})"));
+        }, () =>
+        {
+            // Speedy Entry's crossbar stays on the note just entered.
+            if (entered is { } diatonicEntered) _crossbar = diatonicEntered;
+            return (step is null
+                ? $"{DescribeValue(InputType, InputDots, rest: true)}를 넣었습니다."
+                : $"{pitchName} {DescribeValue(InputType, InputDots, rest: false)}를 넣었습니다.")
+                + (tupletName is null ? "" : $" ({tupletName})");
+        });
     }
 
     /// <summary>
@@ -388,6 +396,7 @@ public sealed partial class ScoreEditor
         Selection = at;
         Cursor = at;
         SelectionIsEntry = false;
+        FollowChord(at);
         return EditResult.Ok($"{at.Measure + 1}마디 {DescribeBeat(at.Position)}의 {(chord[0].Kind == "Rest" ? "쉼표" : "음표")}를 선택했습니다.");
     }
 
@@ -396,6 +405,7 @@ public sealed partial class ScoreEditor
     {
         var target = new EditPosition(part, staff, 1, measure, position);
         if (!IsValid(target)) return EditResult.Refused("그 자리에 입력할 수 없습니다.");
+        if ((target.Part, target.Staff) != (Cursor.Part, Cursor.Staff)) _crossbar = null;
         Cursor = target;
         Selection = null;
         SelectionIsEntry = false;
@@ -408,11 +418,11 @@ public sealed partial class ScoreEditor
         SelectionIsEntry = false;
     }
 
-    public EditResult SelectNext() => Step(+1);
+    public EditResult SelectNext() => MoveSelection(+1);
 
-    public EditResult SelectPrevious() => Step(-1);
+    public EditResult SelectPrevious() => MoveSelection(-1);
 
-    private EditResult Step(int direction)
+    private EditResult MoveSelection(int direction)
     {
         var origin = Selection ?? Cursor;
         if (!IsValid(origin with { Position = Rational.Zero })) return EditResult.Refused("선택할 음표가 없습니다.");

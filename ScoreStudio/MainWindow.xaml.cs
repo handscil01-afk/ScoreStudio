@@ -3,6 +3,8 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Text;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
@@ -34,6 +36,14 @@ public partial class MainWindow : Window
     /// <summary>Mouse entry: a click on a staff enters a note at that height instead of selecting.</summary>
     private bool _mouseEntry;
 
+    /// <summary>Which key runs which command (Finale's keys with the user's changes; docs/KEYS_AND_TOOLS.md).</summary>
+    private KeyMap _keys = KeyMap.Defaults();
+
+    /// <summary>The tool chosen in the tool palette: it decides what a click and the keys do.</summary>
+    private EditorTool _tool = EditorTool.Speedy;
+
+    private bool _settingTool;
+
     /// <summary>The last pointer place over a page (page index and mm), to redraw the entry preview after an edit.</summary>
     private (int Page, double X, double Y)? _pointer;
 
@@ -51,10 +61,224 @@ public partial class MainWindow : Window
         InitializeComponent();
         _editor.TieAcrossBarlines = _settings.TieAcrossBarlines;
         TieAcrossBarlinesMenuItem.IsChecked = _settings.TieAcrossBarlines;
+        _keys = KeyMap.WithChanges(_settings.KeyBindings);
         BuildSignatureMenus();
+        BuildToolPalette();
         SetZoom(1);
         ApplyProjectToUi();
+        SetTool(Enum.TryParse<EditorTool>(_settings.Tool, out var tool) && Enum.IsDefined(tool) ? tool : EditorTool.Speedy, save: false);
         Loaded += (_, _) => ScoreScroll.Focus();
+    }
+
+    // ---- Tools and commands (docs/KEYS_AND_TOOLS.md) -------------------------------------------------------------
+
+    /// <summary>Finale's tools ScoreStudio does not have yet: shown greyed out in the palette and the tools menu.</summary>
+    private static readonly (string Label, string Name)[] UnsupportedTools =
+    {
+        ("표현", "표현 도구(셈여림·글자 지시)"), ("아티큘", "아티큘레이션 도구"), ("이음줄", "스마트 도형 도구(이음줄·크레셴도)"),
+        ("반복", "반복 도구"), ("마디", "마디 도구"), ("텍스트", "텍스트 도구"), ("잇단", "잇단음표 도구(입력할 때 Ctrl+3)"),
+    };
+
+    private static string ToolLabel(EditorTool tool) => tool switch
+    {
+        EditorTool.Selection => "선택",
+        EditorTool.Speedy => "Speedy",
+        EditorTool.Simple => "Simple",
+        EditorTool.Lyrics => "가사",
+        EditorTool.Chord => "코드",
+        EditorTool.KeySignature => "조표",
+        EditorTool.TimeSignature => "박자표",
+        _ => "음자리표",
+    };
+
+    private static string ToolHint(EditorTool tool) => tool switch
+    {
+        EditorTool.Selection => "음표를 누르면 고르고, 빈 곳을 누르면 입력 위치를 둡니다.",
+        EditorTool.Speedy => "마디를 누른 높이에 입력 높이 표시가 생깁니다. 숫자 키로 그 높이에 음표를 넣고, ↑↓로 높이를 옮깁니다.",
+        EditorTool.Simple => "길이를 고르고 음 이름(A~G)으로 넣거나, 오선 위를 눌러 넣습니다.",
+        EditorTool.Lyrics => "음표를 누르면 가사 칸으로 갑니다. 공백·-로 다음 음표로 넘어갑니다.",
+        EditorTool.Chord => "누른 자리에 코드 이름을 넣습니다(예: Am7, Bb/D).",
+        EditorTool.KeySignature => "마디를 누르면 그 마디부터의 조표를 고릅니다.",
+        EditorTool.TimeSignature => "마디를 누르면 그 마디부터의 박자표를 고릅니다.",
+        _ => "음표나 입력 위치를 누르면 그 자리의 음자리표를 고릅니다.",
+    };
+
+    private void BuildToolPalette()
+    {
+        foreach (var tool in Enum.GetValues<EditorTool>())
+        {
+            var button = new RadioButton { Content = ToolLabel(tool), Tag = tool, GroupName = "Tools", Focusable = false, Padding = new Thickness(6, 4, 6, 4), ToolTip = $"{EditorTools.Name(tool)}: {ToolHint(tool)}" };
+            button.Checked += (_, _) => SetTool(tool);
+            ToolPalette.Items.Add(button);
+            var item = new MenuItem { Header = EditorTools.Name(tool), IsCheckable = true, Tag = tool };
+            item.Click += (_, _) => SetTool(tool);
+            ToolMenu.Items.Add(item);
+        }
+
+        ToolPalette.Items.Add(new Separator());
+        ToolMenu.Items.Add(new Separator());
+        foreach (var (label, name) in UnsupportedTools)
+        {
+            var button = new Button { Content = label, IsEnabled = false, Padding = new Thickness(6, 4, 6, 4), ToolTip = $"{name}: 아직 지원하지 않습니다." };
+            ToolTipService.SetShowOnDisabled(button, true);
+            ToolPalette.Items.Add(button);
+            var item = new MenuItem { Header = name, IsEnabled = false, ToolTip = "아직 지원하지 않습니다." };
+            ToolTipService.SetShowOnDisabled(item, true);
+            ToolMenu.Items.Add(item);
+        }
+    }
+
+    /// <summary>Chooses a tool: marks it in the palette and menu, fills the tool's menu and remembers it.</summary>
+    private void SetTool(EditorTool tool, bool save = true)
+    {
+        if (_settingTool) return;
+        _settingTool = true;
+        try
+        {
+            _tool = tool;
+            foreach (var button in ToolPalette.Items.OfType<RadioButton>()) button.IsChecked = button.Tag is EditorTool t && t == tool;
+            foreach (var item in ToolMenu.Items.OfType<MenuItem>()) item.IsChecked = item.Tag is EditorTool t && t == tool;
+            SetMouseEntry(tool == EditorTool.Simple);
+            BuildToolCommandsMenu();
+            RefreshMenuKeys();
+            if (save)
+            {
+                _settings.Tool = tool.ToString();
+                _settings.Save(SettingsPath);
+            }
+
+            StatusText.Content = $"{EditorTools.Name(tool)}: {ToolHint(tool)}";
+            UpdatePreview(describe: false);
+        }
+        finally
+        {
+            _settingTool = false;
+        }
+    }
+
+    /// <summary>The chosen tool's own menu, as Finale shows a Speedy or Simple menu while that tool is chosen.</summary>
+    private void BuildToolCommandsMenu()
+    {
+        ToolCommandsMenu.Items.Clear();
+        ToolCommandsMenu.Header = $"{ToolLabel(_tool)}(_S)";
+        var scope = EditorTools.Scope(_tool);
+        if (scope != KeyScope.Common)
+        {
+            foreach (var command in KeyMap.Defaults().All().Where(b => b.Scope == scope).Select(b => b.Command).Distinct())
+                ToolCommandsMenu.Items.Add(CommandMenuItem(command));
+        }
+        else
+        {
+            switch (_tool)
+            {
+                case EditorTool.Lyrics:
+                    ToolCommandsMenu.Items.Add(CommandMenuItem(EditorCommand.LyricBox));
+                    break;
+                case EditorTool.Chord:
+                    ToolCommandsMenu.Items.Add(CommandMenuItem(EditorCommand.ChordBox));
+                    break;
+                case EditorTool.KeySignature:
+                    foreach (var item in KeyItems()) ToolCommandsMenu.Items.Add(item);
+                    break;
+                case EditorTool.TimeSignature:
+                    foreach (var item in TimeItems()) ToolCommandsMenu.Items.Add(item);
+                    break;
+                case EditorTool.Clef:
+                    foreach (var item in ClefItems()) ToolCommandsMenu.Items.Add(item);
+                    break;
+            }
+        }
+
+        ToolCommandsMenu.Visibility = ToolCommandsMenu.Items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private MenuItem CommandMenuItem(EditorCommand command)
+    {
+        var item = new MenuItem { Header = KeyMap.Info(command).Name, Tag = command.ToString(), IsEnabled = KeyMap.Info(command).Supported };
+        item.Click += Command_Click;
+        return item;
+    }
+
+    /// <summary>Shows each menu command's key for the chosen tool, as the menus' shortcut column.</summary>
+    private void RefreshMenuKeys()
+    {
+        var scope = EditorTools.Scope(_tool);
+        void Walk(ItemCollection items)
+        {
+            foreach (var item in items.OfType<MenuItem>())
+            {
+                if (item.Tag is string name && Enum.TryParse<EditorCommand>(name, out var command))
+                {
+                    var key = _keys.KeysFor(scope, command).Concat(_keys.KeysFor(KeyScope.Common, command)).FirstOrDefault();
+                    item.InputGestureText = key?.Display() ?? "";
+                }
+
+                Walk(item.Items);
+            }
+        }
+
+        Walk(MainMenu.Items);
+    }
+
+    private void Command_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string name } && Enum.TryParse<EditorCommand>(name, out var command)) RunCommand(command);
+    }
+
+    private void RunCommand(EditorCommand command)
+    {
+        var before = _editor.ChangeCount;
+        if (CommandRunner.Run(_editor, command) is { } result)
+        {
+            ShowEdit(result, before);
+            ScoreScroll.Focus();
+        }
+        else
+        {
+            RunWindowCommand(command);
+        }
+    }
+
+    /// <summary>The commands the window does itself.</summary>
+    private void RunWindowCommand(EditorCommand command)
+    {
+        switch (command)
+        {
+            case EditorCommand.LyricBox:
+                LyricInput.Focus();
+                break;
+            case EditorCommand.ChordBox:
+                ChordInput.Focus();
+                break;
+            case EditorCommand.MouseEntry:
+                if (_tool == EditorTool.Simple) SetMouseEntry(!_mouseEntry);
+                else SetTool(EditorTool.Simple);
+                break;
+        }
+    }
+
+    private void KeySettings_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new KeySettingsWindow(_keys) { Owner = this };
+        if (window.ShowDialog() != true || window.Result is not { } keys) return;
+        _keys = keys;
+        _settings.KeyBindings = keys.Changes();
+        var saved = _settings.Save(SettingsPath);
+        BuildToolCommandsMenu();
+        RefreshMenuKeys();
+        StatusText.Content = saved ? "단축키 설정을 저장했습니다." : "단축키 설정을 저장하지 못해 프로그램을 닫으면 원래대로 돌아갑니다.";
+        ScoreScroll.Focus();
+    }
+
+    private void Exit_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void ZoomReset_Click(object sender, RoutedEventArgs e) => SetZoom(1);
+
+    private void ShowSignatureMenu(IEnumerable<MenuItem> items)
+    {
+        var menu = new ContextMenu { PlacementTarget = ScoreScroll, Placement = PlacementMode.MousePoint };
+        foreach (var item in items) menu.Items.Add(item);
+        menu.IsOpen = true;
     }
 
     private void UseProject(ScoreProject project)
@@ -270,21 +494,28 @@ public partial class MainWindow : Window
         (2, 4), (3, 4), (4, 4), (5, 4), (6, 4), (2, 2), (3, 2), (3, 8), (5, 8), (6, 8), (7, 8), (9, 8), (12, 8),
     };
 
-    /// <summary>Fills the key, time signature and clef submenus of the edit menu.</summary>
+    /// <summary>Fills the key, time signature and clef submenus of the document menu.</summary>
     private void BuildSignatureMenus()
+    {
+        foreach (var item in KeyItems()) KeyMenu.Items.Add(item);
+        foreach (var item in TimeItems()) TimeMenu.Items.Add(item);
+        foreach (var item in ClefItems()) ClefMenu.Items.Add(item);
+    }
+
+    private IEnumerable<MenuItem> KeyItems()
     {
         for (var fifths = -7; fifths <= 7; fifths++)
         {
             var value = fifths;
-            KeyMenu.Items.Add(CommandItem(ScoreEditor.KeyName(value), () => RunEdit(ed => ed.SetKey(value))));
+            yield return CommandItem(ScoreEditor.KeyName(value), () => RunEdit(ed => ed.SetKey(value)));
         }
-
-        foreach (var (numerator, denominator) in TimeSignatures)
-            TimeMenu.Items.Add(CommandItem($"{numerator}/{denominator}", () => RunEdit(ed => ed.SetTime(numerator, denominator))));
-
-        foreach (var clef in Enum.GetValues<ClefType>())
-            ClefMenu.Items.Add(CommandItem(ScoreEditor.ClefName(clef), () => RunEdit(ed => ed.SetClef(clef))));
     }
+
+    private IEnumerable<MenuItem> TimeItems() =>
+        TimeSignatures.Select(t => CommandItem($"{t.Numerator}/{t.Denominator}", () => RunEdit(ed => ed.SetTime(t.Numerator, t.Denominator))));
+
+    private IEnumerable<MenuItem> ClefItems() =>
+        Enum.GetValues<ClefType>().Select(clef => CommandItem(ScoreEditor.ClefName(clef), () => RunEdit(ed => ed.SetClef(clef))));
 
     private static MenuItem CommandItem(string header, Action action)
     {
@@ -317,32 +548,30 @@ public partial class MainWindow : Window
         ScoreScroll.Focus();
     }
 
+    /// <summary>Help > 단축키 목록: the keys of the key map, by scope.</summary>
     private void KeyHelp_Click(object sender, RoutedEventArgs e)
     {
-        MessageBox.Show(this,
-            "악보를 한 번 누른 뒤 키보드로 입력합니다.\n\n" +
-            "C D E F G A B : 그 음 입력 (조표를 따르고, 앞 음에 가까운 옥타브)\n" +
-            "Shift + 음 이름 : 선택한 화음에 음 더하기\n" +
-            "0 : 쉼표 입력\n" +
-            "7 6 5 4 3 2 : 온·2분·4분·8분·16분·32분음표 (Finale Speedy Entry와 같은 번호)\n" +
-            ". : 점 붙이기·떼기\n" +
-            "↑ ↓ : 반음 올리기·내리기, Ctrl + ↑ ↓ : 옥타브\n" +
-            "← → : 이전·다음 음표 선택\n" +
-            "Delete, Backspace : 선택한 음표를 쉼표로\n" +
-            "Ctrl+Z, Ctrl+Y : 실행 취소, 다시 실행\n" +
-            "Ctrl+C, Ctrl+V : 입력 위치의 마디 복사, 붙여넣기\n" +
-            "Esc : 선택 해제\n\n" +
-            "Ctrl+L : 가사 입력 칸 (공백·-·_ 로 다음 음표), Ctrl+K : 코드 이름 입력 칸 (공백·Enter로 다음 음표)\n" +
-            "Ctrl+3 : 셋잇단음표 (첫 음 앞에서 누름, Ctrl+2~7·Ctrl+9는 그 개수의 잇단음표, Esc로 취소)\n" +
-            "N : 마우스 입력 켜기·끄기 (켜면 오선 위를 눌러 그 높이의 음표를 넣고, Shift+누르기로 화음에 더함)\n\n" +
-            "음표를 누르면 선택하고, 빈 곳을 누르면 그 마디에 입력 위치를 둡니다.\n" +
-            "음표를 선택한 상태에서 길이 키를 누르면 그 음표의 길이가 바뀝니다.\n" +
-            "마디에 남은 길이보다 긴 음표는 넣지 않습니다. 설정 메뉴에서 다음 마디로 붙임줄로 이어 넣게 바꿀 수 있습니다.\n\n" +
-            "조표·박자표는 편집 메뉴에서 입력 위치의 마디부터 다음 변경 전까지 바꾸고, 음자리표는 선택한 음표(없으면 입력 위치)에 넣습니다.",
-            "키보드 입력 방법", MessageBoxButton.OK, MessageBoxImage.Information);
+        var text = new StringBuilder();
+        foreach (var scope in new[] { KeyScope.Speedy, KeyScope.Simple, KeyScope.Common })
+        {
+            text.AppendLine($"[{EditorTools.ScopeName(scope)}]");
+            foreach (var (_, command, keys) in _keys.All().Where(b => b.Scope == scope && b.Keys.Count > 0))
+                text.AppendLine($"{string.Join(", ", keys.Select(k => k.Display()))} : {KeyMap.Info(command).Name}");
+            text.AppendLine();
+        }
+
+        text.Append("단축키는 편집 > 단축키 설정에서 바꿉니다. 도구는 왼쪽 도구 팔레트나 도구 메뉴에서 고릅니다. "
+            + "Speedy Entry: 마디를 누른 뒤 ↑↓로 높이를 정하고 숫자 키(1=64분 … 5=4분, 6=2분, 7=온음표)로 넣습니다.");
+        MessageBox.Show(this, text.ToString(), "단축키 목록", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
-    private void MouseEntry_Click(object sender, RoutedEventArgs e) => SetMouseEntry(MouseEntryButton.IsChecked == true);
+    /// <summary>Mouse entry belongs to the Simple Entry tool: turning it on chooses that tool.</summary>
+    private void MouseEntry_Click(object sender, RoutedEventArgs e)
+    {
+        if (MouseEntryButton.IsChecked != true) SetMouseEntry(false);
+        else if (_tool != EditorTool.Simple) SetTool(EditorTool.Simple);
+        else SetMouseEntry(true);
+    }
 
     private void SetMouseEntry(bool on)
     {
@@ -351,7 +580,7 @@ public partial class MainWindow : Window
         if (on) ScoreScroll.Cursor = Cursors.Cross;
         else ScoreScroll.ClearValue(CursorProperty);
         StatusText.Content = on
-            ? "마우스 입력: 오선 위를 누르면 그 높이에 음표를 넣습니다(Shift: 화음에 더하기). N 또는 Esc로 끕니다."
+            ? "마우스 입력: 오선 위를 누르면 그 높이에 음표를 넣습니다(Shift: 화음에 더하기). N으로 끄고 켭니다."
             : "마우스 입력을 껐습니다. 누르면 음표를 선택합니다.";
         UpdatePreview(describe: false);
         ScoreScroll.Focus();
@@ -379,15 +608,31 @@ public partial class MainWindow : Window
     /// In mouse entry, the grey note where a click would enter one; nothing otherwise. <paramref name="describe"/> also
     /// names it in the status bar (not right after an edit, whose message stays).
     /// </summary>
+    /// <summary>
+    /// The grey preview: with mouse entry, the note a click would enter under the pointer; with the Speedy Entry tool, the
+    /// crossbar at the cursor.
+    /// </summary>
     private void UpdatePreview(bool describe = true)
     {
-        var target = _mouseEntry && _layout is not null && _pointer is { } p
-            ? MouseEntry.Find(_layout, p.Page, Project, _editor.InputType, p.X, p.Y)
-            : null;
+        if (_layout is null) return;
+        IReadOnlyList<DrawItem>? items = null;
+        var page = -1;
+        if (_mouseEntry)
+        {
+            if (_pointer is { } p && MouseEntry.Find(_layout, p.Page, Project, _editor.InputType, p.X, p.Y) is { } target)
+            {
+                (items, page) = (target.Preview, p.Page);
+                if (describe)
+                    StatusText.Content = $"{target.PitchName} · {Project.Parts[target.At.Part].Measures[target.At.Measure].Number}마디 {(target.At.Position.ToDouble() + 1).ToString("0.##", CultureInfo.InvariantCulture)}박에 넣기";
+            }
+        }
+        else if (_tool == EditorTool.Speedy && CrossbarMark.Find(_layout, Project, _editor.Cursor, _editor.Crossbar) is { } mark)
+        {
+            (page, items) = (mark.Page, mark.Items);
+        }
+
         for (var i = 0; i < _pageViews.Count; i++)
-            _pageViews[i].SetPreview(target is not null && i == _pointer!.Value.Page ? target.Preview : null);
-        if (target is not null && describe)
-            StatusText.Content = $"{target.PitchName} · {Project.Parts[target.At.Part].Measures[target.At.Measure].Number}마디 {(target.At.Position.ToDouble() + 1).ToString("0.##", CultureInfo.InvariantCulture)}박에 넣기";
+            _pageViews[i].SetPreview(i == page ? items : null);
     }
 
     private void Score_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -414,7 +659,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (LayoutHitTest.FindChord(view.Page, x, y, 0.4 * sp) is { } chord)
+        var chord = LayoutHitTest.FindChord(view.Page, x, y, 0.4 * sp);
+        if (chord is not null)
         {
             ShowEdit(_editor.Select(new EditPosition(chord.PartIndex, chord.Staff, chord.Voice, chord.MeasureIndex, chord.Start)), before);
         }
@@ -426,9 +672,35 @@ public partial class MainWindow : Window
                 .OrderBy(c => c.Start).ToList();
             var position = boxes.FirstOrDefault(c => c.Right >= x)?.Start ?? EndOfVoice(hit);
             ShowEdit(_editor.PlaceCursor(hit.PartIndex, hit.Staff, hit.MeasureIndex, position), before);
+
+            // Speedy Entry: the crossbar goes to the height clicked.
+            if (_tool == EditorTool.Speedy && MouseEntry.DiatonicAt(_layout, _pageViews.IndexOf(view), Project, x, y) is { } height)
+            {
+                _editor.SetCrossbar(height);
+                UpdatePreview(describe: false);
+                StatusText.Content = $"입력 위치: {Project.Parts[hit.PartIndex].Measures[hit.MeasureIndex].Number}마디 · 입력 높이 {_editor.CrossbarName} (숫자 키로 넣기, ↑↓로 높이 옮기기)";
+            }
         }
 
         e.Handled = true;
+        switch (_tool)
+        {
+            case EditorTool.Lyrics:
+                LyricInput.Focus();
+                break;
+            case EditorTool.Chord:
+                ChordInput.Focus();
+                break;
+            case EditorTool.KeySignature:
+                ShowSignatureMenu(KeyItems());
+                break;
+            case EditorTool.TimeSignature:
+                ShowSignatureMenu(TimeItems());
+                break;
+            case EditorTool.Clef:
+                ShowSignatureMenu(ClefItems());
+                break;
+        }
     }
 
     /// <summary>Where voice 1 of a staff ends in a measure: after its last chord, or the start of an empty measure.</summary>
@@ -514,6 +786,7 @@ public partial class MainWindow : Window
         }
 
         RefreshInfo();
+        UpdatePreview(describe: false);
     }
 
     private void BringCursorIntoView()
@@ -606,23 +879,33 @@ public partial class MainWindow : Window
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // Typing in the title box or a list stays there; everywhere else keys edit the score.
+        // Typing in the title box, a text box or a list stays there (except the keys that move between the text boxes);
+        // everywhere else keys run the commands of the key map for the chosen tool.
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        var scope = EditorTools.Scope(_tool);
         if (Keyboard.FocusedElement is not (TextBox or ComboBox or ComboBoxItem))
         {
-            if (Keyboard.Modifiers == ModifierKeys.None && (e.Key == Key.N || (e.Key == Key.Escape && _mouseEntry)))
-            {
-                SetMouseEntry(e.Key == Key.N && !_mouseEntry);
-                e.Handled = true;
-                return;
-            }
-
             var before = _editor.ChangeCount;
-            if (EditorKeys.Handle(_editor, e.Key == Key.System ? e.SystemKey : e.Key, Keyboard.Modifiers) is { } result)
+            var (result, command) = EditorKeys.Handle(_editor, _keys, scope, key, Keyboard.Modifiers);
+            if (result is not null)
             {
                 ShowEdit(result, before);
                 e.Handled = true;
                 return;
             }
+
+            if (command is { } windowCommand)
+            {
+                RunWindowCommand(windowCommand);
+                e.Handled = true;
+                return;
+            }
+        }
+        else if (EditorKeys.Stroke(key, Keyboard.Modifiers) is { } stroke && _keys.Find(scope, stroke) is EditorCommand.LyricBox or EditorCommand.ChordBox)
+        {
+            RunWindowCommand(_keys.Find(scope, stroke)!.Value);
+            e.Handled = true;
+            return;
         }
 
         if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
@@ -638,14 +921,6 @@ public partial class MainWindow : Window
                 break;
             case Key.D0 or Key.NumPad0:
                 SetZoom(1);
-                e.Handled = true;
-                break;
-            case Key.L:
-                LyricInput.Focus();
-                e.Handled = true;
-                break;
-            case Key.K:
-                ChordInput.Focus();
                 e.Handled = true;
                 break;
         }

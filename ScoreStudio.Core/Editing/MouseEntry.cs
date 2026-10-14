@@ -80,6 +80,24 @@ public static class MouseEntry
         return new MouseEntryTarget(new EditPosition(hit.PartIndex, hit.Staff, 1, hit.MeasureIndex, start), diatonic, name, preview);
     }
 
+    /// <summary>
+    /// The written pitch (diatonic step number from C0) at a pointer height on a staff, in the clef there, or null off the
+    /// staves; Speedy Entry puts its crossbar there when the staff is clicked.
+    /// </summary>
+    public static int? DiatonicAt(ScoreLayout layout, int pageIndex, ScoreProject project, double x, double y)
+    {
+        if (pageIndex < 0 || pageIndex >= layout.Pages.Count) return null;
+        var page = layout.Pages[pageIndex];
+        var sp = layout.StaffSpace;
+        if (LayoutHitTest.FindStaffMeasure(page, x, y, sp) is not { } hit) return null;
+        var system = page.Systems.First(s => s.Measures.Any(m => m.MeasureIndex == hit.MeasureIndex && x >= m.Left && x <= m.Right));
+        var staffTop = system.Staves.First(s => s.PartIndex == hit.PartIndex && s.StaffIndex == hit.Staff).Top;
+        var position = Math.Clamp((int)Math.Round((staffTop + 4 * sp - y) / (sp / 2)), LowestPosition, HighestPosition);
+        var clef = new ClefTimeline(project).ClefAt(hit.PartIndex, hit.Staff, hit.MeasureIndex, Rational.Zero);
+        var diatonic = Notation.BottomLineDiatonic(clef) + position;
+        return diatonic < 0 ? null : diatonic;
+    }
+
     /// <summary>Where voice 1 of a staff ends in a measure: after its last chord or rest, or at the start.</summary>
     public static Rational EndOfVoice(ScoreMeasure measure, int staff) =>
         measure.Events.Where(e => e.Staff == staff && e.Voice == 1)

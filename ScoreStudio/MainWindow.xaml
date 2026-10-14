@@ -6,39 +6,73 @@
         MinHeight="600" MinWidth="900" WindowStartupLocation="CenterScreen"
         PreviewKeyDown="Window_PreviewKeyDown" Closing="Window_Closing">
     <DockPanel>
-        <Menu DockPanel.Dock="Top">
-            <MenuItem Header="_파일">
+        <!-- Finale's menu bar: File, Edit, Utilities, View, Document, Tools, the chosen tool's menu, Plug-ins, Help. -->
+        <Menu x:Name="MainMenu" DockPanel.Dock="Top">
+            <MenuItem Header="파일(_F)">
                 <MenuItem Header="새 악보" Click="NewScore_Click"/>
-                <MenuItem Header="프로젝트 열기..." Click="OpenProject_Click"/>
-                <MenuItem Header="프로젝트 저장..." Click="SaveProject_Click"/>
+                <MenuItem Header="열기..." Click="OpenProject_Click"/>
+                <MenuItem Header="저장..." Click="SaveProject_Click"/>
                 <Separator/>
-                <MenuItem Header="MusicXML 가져오기..." Click="ImportMusicXml_Click"/>
-                <MenuItem Header="PDF·그림에서 악보 인식..." Click="RecognizeScore_Click"
-                          ToolTip="스캔한 PDF나 캡처한 악보 그림을 Audiveris로 읽어 악보로 바꿉니다. 여러 개를 고르면 이름 순서대로 이어 붙입니다."/>
-                <MenuItem Header="PDF 내보내기..." IsEnabled="False" ToolTip="다음 개발 단계에서 구현합니다."/>
+                <MenuItem Header="가져오기">
+                    <MenuItem Header="MusicXML..." Click="ImportMusicXml_Click"/>
+                    <MenuItem Header="PDF·그림에서 악보 인식..." Click="RecognizeScore_Click"
+                              ToolTip="스캔한 PDF나 캡처한 악보 그림을 Audiveris로 읽어 악보로 바꿉니다. 여러 개를 고르면 이름 순서대로 이어 붙입니다."/>
+                    <MenuItem Header="Finale 파일(.musx)..." IsEnabled="False" ToolTipService.ShowOnDisabled="True" ToolTip="아직 지원하지 않습니다."/>
+                </MenuItem>
+                <MenuItem Header="내보내기">
+                    <MenuItem Header="PDF..." IsEnabled="False" ToolTipService.ShowOnDisabled="True" ToolTip="다음 개발 단계에서 구현합니다."/>
+                    <MenuItem Header="MusicXML..." IsEnabled="False" ToolTipService.ShowOnDisabled="True" ToolTip="아직 지원하지 않습니다."/>
+                </MenuItem>
+                <Separator/>
+                <MenuItem Header="끝내기" Click="Exit_Click"/>
             </MenuItem>
-            <MenuItem Header="_편집">
-                <MenuItem x:Name="UndoMenuItem" Header="실행 취소" InputGestureText="Ctrl+Z" Click="Undo_Click"/>
-                <MenuItem x:Name="RedoMenuItem" Header="다시 실행" InputGestureText="Ctrl+Y" Click="Redo_Click"/>
+            <MenuItem Header="편집(_E)">
+                <MenuItem x:Name="UndoMenuItem" Header="실행 취소" Tag="Undo" Click="Command_Click"/>
+                <MenuItem x:Name="RedoMenuItem" Header="다시 실행" Tag="Redo" Click="Command_Click"/>
                 <Separator/>
-                <MenuItem Header="마디 복사" InputGestureText="Ctrl+C" Click="CopyMeasure_Click"/>
-                <MenuItem x:Name="PasteMenuItem" Header="마디 붙여넣기" InputGestureText="Ctrl+V" Click="PasteMeasure_Click"/>
+                <MenuItem Header="마디 복사" Tag="CopyMeasure" Click="Command_Click"/>
+                <MenuItem x:Name="PasteMenuItem" Header="마디 붙여넣기" Tag="PasteMeasure" Click="Command_Click"/>
+                <MenuItem Header="지우기(쉼표로)" Tag="Delete" Click="Command_Click"/>
                 <Separator/>
-                <MenuItem Header="입력 위치 뒤에 마디 추가" Click="InsertMeasure_Click"/>
-                <MenuItem Header="입력 위치의 마디 삭제" Click="DeleteMeasure_Click"/>
+                <MenuItem Header="단축키 설정..." Click="KeySettings_Click"/>
+                <MenuItem Header="환경 설정">
+                    <MenuItem x:Name="TieAcrossBarlinesMenuItem" Header="마디를 넘는 음표를 다음 마디로 이어 넣기(붙임줄)" IsCheckable="True"
+                              Click="TieAcrossBarlines_Click"
+                              ToolTip="끄면(기본) 마디에 남은 길이보다 긴 음표는 넣지 않습니다. 켜면 남은 만큼 넣고 나머지를 다음 마디에 붙임줄로 이어 넣습니다."/>
+                </MenuItem>
+            </MenuItem>
+            <MenuItem Header="유틸리티(_U)">
+                <MenuItem Header="반음 올리기" Tag="SemitoneUp" Click="Command_Click"/>
+                <MenuItem Header="반음 내리기" Tag="SemitoneDown" Click="Command_Click"/>
+                <MenuItem Header="한 칸 올리기" Tag="StepUp" Click="Command_Click"/>
+                <MenuItem Header="한 칸 내리기" Tag="StepDown" Click="Command_Click"/>
+                <MenuItem Header="옥타브 올리기" Tag="OctaveUp" Click="Command_Click"/>
+                <MenuItem Header="옥타브 내리기" Tag="OctaveDown" Click="Command_Click"/>
+                <MenuItem Header="딴이름한소리(엔하모닉)" Tag="Respell" Click="Command_Click"/>
                 <Separator/>
+                <MenuItem Header="다음 음과 붙임줄" Tag="TieToNext" Click="Command_Click"/>
+                <MenuItem Header="기둥 방향 뒤집기" Tag="FlipStem" Click="Command_Click"/>
+                <MenuItem Header="기둥 방향 자동" Tag="AutoStem" Click="Command_Click"/>
+                <MenuItem Header="빔 다시 묶기" IsEnabled="False" ToolTipService.ShowOnDisabled="True" ToolTip="아직 지원하지 않습니다."/>
+            </MenuItem>
+            <MenuItem Header="보기(_V)">
+                <MenuItem Header="확대" InputGestureText="Ctrl+=" Click="ZoomIn_Click"/>
+                <MenuItem Header="축소" InputGestureText="Ctrl+-" Click="ZoomOut_Click"/>
+                <MenuItem Header="100%로 보기" InputGestureText="Ctrl+0" Click="ZoomReset_Click"/>
+            </MenuItem>
+            <MenuItem Header="문서(_D)">
                 <MenuItem x:Name="KeyMenu" Header="조표 바꾸기 (입력 위치의 마디부터)"/>
                 <MenuItem x:Name="TimeMenu" Header="박자표 바꾸기 (입력 위치의 마디부터)"/>
                 <MenuItem x:Name="ClefMenu" Header="음자리표 바꾸기 (선택한 음표나 입력 위치에)"/>
                 <Separator/>
-                <MenuItem Header="키보드 입력 방법" Click="KeyHelp_Click"/>
+                <MenuItem Header="입력 위치 뒤에 마디 추가" Click="InsertMeasure_Click"/>
+                <MenuItem Header="입력 위치의 마디 삭제" Click="DeleteMeasure_Click"/>
             </MenuItem>
-            <MenuItem Header="_설정">
-                <MenuItem x:Name="TieAcrossBarlinesMenuItem" Header="마디를 넘는 음표를 다음 마디로 이어 넣기(붙임줄)" IsCheckable="True"
-                          Click="TieAcrossBarlines_Click"
-                          ToolTip="끄면(기본) 마디에 남은 길이보다 긴 음표는 넣지 않습니다. 켜면 남은 만큼 넣고 나머지를 다음 마디에 붙임줄로 이어 넣습니다."/>
-            </MenuItem>
-            <MenuItem Header="_도움말">
+            <MenuItem x:Name="ToolMenu" Header="도구(_T)"/>
+            <MenuItem x:Name="ToolCommandsMenu" Header="Speedy(_S)"/>
+            <MenuItem Header="플러그인" IsEnabled="False" ToolTipService.ShowOnDisabled="True" ToolTip="아직 지원하지 않습니다."/>
+            <MenuItem Header="도움말(_H)">
+                <MenuItem Header="단축키 목록" Click="KeyHelp_Click"/>
                 <MenuItem Header="개발 상태" Click="About_Click"/>
             </MenuItem>
         </Menu>
@@ -89,12 +123,19 @@
                 <Button Click="Rest_Click" Focusable="False" Padding="3,1" ToolTip="입력 위치에 쉼표 넣기 (0)">
                     <r:MusicGlyphIcon Glyph="&#xE4E5;" Baseline="0.5" Fallback="쉼표"/>
                 </Button>
+                <Button Tag="SemitoneUp" Click="Command_Click" Focusable="False" Padding="3,1" ToolTip="선택한 음 반음 올림">
+                    <r:MusicGlyphIcon Glyph="&#xE262;" Baseline="0.5" Fallback="♯"/>
+                </Button>
+                <Button Tag="SemitoneDown" Click="Command_Click" Focusable="False" Padding="3,1" ToolTip="선택한 음 반음 내림">
+                    <r:MusicGlyphIcon Glyph="&#xE260;" Baseline="0.6" Fallback="♭"/>
+                </Button>
+                <Button Tag="TieToNext" Click="Command_Click" Content="붙임줄" Focusable="False" Padding="6,4" ToolTip="선택한 음을 다음 같은 음과 붙임줄로 잇기·풀기"/>
                 <ToggleButton x:Name="TupletButton" Content="셋잇단 (Ctrl+3)" Click="Tuplet_Click" Focusable="False" Padding="6,4"
                               ToolTip="다음에 넣는 음표부터 셋잇단음표로 넣습니다(입력 길이 2개 시간에 3개). 다른 잇단음표는 Ctrl+2~7, Ctrl+9. 다시 누르거나 Esc로 취소합니다."/>
                 <TextBlock x:Name="InputValueText" Text="4분음표" VerticalAlignment="Center" FontWeight="SemiBold" Margin="8,0"/>
                 <Separator/>
                 <ToggleButton x:Name="MouseEntryButton" Content="마우스 입력 (N)" Click="MouseEntry_Click" Focusable="False" Padding="8,4"
-                              ToolTip="켜면 오선 위를 눌러 그 높이의 음표를 넣습니다. Shift를 누른 채 누르면 그 자리의 화음에 더합니다. 끄면 누른 음표를 선택합니다."/>
+                              ToolTip="Simple Entry 도구에서 오선 위를 눌러 그 높이의 음표를 넣습니다. Shift를 누른 채 누르면 그 자리의 화음에 더합니다. 끄면 누른 음표를 선택합니다."/>
             </ToolBar>
         </ToolBarTray>
 
@@ -105,6 +146,11 @@
             <Separator/>
             <StatusBarItem Content=".scoreproj"/>
         </StatusBar>
+
+        <!-- Finale's main tool palette: the chosen tool decides what a click and the keys do. -->
+        <ToolBarTray DockPanel.Dock="Left" Orientation="Vertical">
+            <ToolBar x:Name="ToolPalette"/>
+        </ToolBarTray>
 
         <Grid>
             <Grid.ColumnDefinitions>
